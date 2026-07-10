@@ -600,30 +600,63 @@ export default function DrawioPreview() {
                 return { x: dx/l, y: dy/l };
               };
 
+              // Helper to split orthogonal points at the diamond position t
+              const getSplitPaths = (pts: {x:number; y:number}[], t: number, dm: {x: number; y: number}) => {
+                const total = polyLen(pts);
+                const target = t * total;
+
+                let current = 0;
+                const path1: {x:number; y:number}[] = [];
+                const path2: {x:number; y:number}[] = [];
+
+                path1.push(pts[0]);
+                let dmPlaced = false;
+
+                for (let i = 1; i < pts.length; i++) {
+                  const p1 = pts[i-1];
+                  const p2 = pts[i];
+                  const dx = p2.x - p1.x;
+                  const dy = p2.y - p1.y;
+                  const seg = Math.sqrt(dx*dx + dy*dy);
+
+                  if (!dmPlaced) {
+                    if (current + seg < target) {
+                      path1.push(p2);
+                    } else {
+                      path1.push(dm);
+                      path2.push(dm);
+                      path2.push(p2);
+                      dmPlaced = true;
+                    }
+                  } else {
+                    path2.push(p2);
+                  }
+                  current += seg;
+                }
+
+                if (!dmPlaced) {
+                  path1.push(dm);
+                  path2.push(dm);
+                  path2.push(pts[pts.length - 1]);
+                }
+
+                const d1 = path1.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+                const d2 = path2.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+                return { d1, d2 };
+              };
+
               return (
                 <>
                   {/* LAYER 1: Lines split at diamond — Entity -> Diamond -> Entity */}
                   {layout.edges.map(edge => {
                     const dm = diamondMap.get(edge.id)!;
-                    const rel = edge.relationship;
-                    const sn = layout.nodes.find(n => n.id === rel.sourceTable);
-                    const tn = layout.nodes.find(n => n.id === rel.targetTable);
-
-                    const srcPt = edge.points[0];
-                    const srcPt2 = edge.points[1] ?? srcPt;
-                    const tgtPt = edge.points[edge.points.length - 1];
-                    const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
-
-                    const srcCenter = sn ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 } : srcPt;
-                    const tgtCenter = tn ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 } : tgtPt;
-
-                    const srcBorder = getBorderPoint(srcCenter, srcPt2, 120, 45);
-                    const tgtBorder = getBorderPoint(tgtCenter, tgtPt2, 120, 45);
+                    const { d1, d2 } = getSplitPaths(edge.points, 0.5, dm);
 
                     return (
                       <g key={`lines_${edge.id}`}>
-                        <line x1={srcBorder.x} y1={srcBorder.y} x2={dm.x} y2={dm.y} stroke="#2563eb" strokeWidth={1.5} />
-                        <line x1={dm.x} y1={dm.y} x2={tgtBorder.x} y2={tgtBorder.y} stroke="#2563eb" strokeWidth={1.5} />
+                        <path d={d1} fill="none" stroke="#2563eb" strokeWidth={1.5} />
+                        <path d={d2} fill="none" stroke="#2563eb" strokeWidth={1.5} />
                       </g>
                     );
                   })}
@@ -732,24 +765,27 @@ export default function DrawioPreview() {
                     const srcBorder = getBorderPoint(srcCenter, srcPt2, 120, 45);
                     const tgtBorder = getBorderPoint(tgtCenter, tgtPt2, 120, 45);
 
+                    const uSrc = uv(srcCenter, srcPt2);
+                    const uTgt = uv(tgtCenter, tgtPt2);
+
                     return (
                       <g key={`overlay_${edge.id}`}>
                         {relNotation === 'crowsfoot' ? (
                           <>
-                            {/* Source side tick (Mandatory 1): single tick at 10px pointing to dm */}
+                            {/* Source side tick (Mandatory 1): single tick at 10px */}
                             {(() => {
-                              const u = uv(srcBorder, { x: dmX, y: dmY }), px = -u.y, py = u.x;
+                              const u = uSrc, px = -u.y, py = u.x;
                               const bx = srcBorder.x + u.x * 10, by = srcBorder.y + u.y * 10;
                               return <line x1={bx+px*5} y1={by+py*5} x2={bx-px*5} y2={by-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
                             })()}
 
-                            {/* Target side marker: single tick for 1:1, crow's foot for many pointing to dm */}
+                            {/* Target side marker: single tick for 1:1, crow's foot for many */}
                             {rel.type === '1:1' ? (() => {
-                              const u = uv(tgtBorder, { x: dmX, y: dmY }), px = -u.y, py = u.x;
+                              const u = uTgt, px = -u.y, py = u.x;
                               const bx = tgtBorder.x + u.x * 10, by = tgtBorder.y + u.y * 10;
                               return <line x1={bx+px*5} y1={by+py*5} x2={bx-px*5} y2={by-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
                             })() : (() => {
-                              const u = uv(tgtBorder, { x: dmX, y: dmY }), px = -u.y, py = u.x;
+                              const u = uTgt, px = -u.y, py = u.x;
                               const far = { x: tgtBorder.x + u.x * 12, y: tgtBorder.y + u.y * 12 };
                               return (
                                 <g>
@@ -762,15 +798,15 @@ export default function DrawioPreview() {
                           </>
                         ) : (
                           <>
-                            {/* Text labels: positioned 36px back along the line pointing to dm */}
+                            {/* Text labels: positioned 36px back along the line */}
                             {(() => {
-                              const u = uv(srcBorder, { x: dmX, y: dmY }), px = -u.y, py = u.x;
+                              const u = uSrc, px = -u.y, py = u.x;
                               const lx = srcBorder.x + u.x*36 + px*14, ly = srcBorder.y + u.y*36 + py*14;
                               return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
                                 <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>1</text></g>);
                             })()}
                             {(() => {
-                              const u = uv(tgtBorder, { x: dmX, y: dmY }), px = -u.y, py = u.x;
+                              const u = uTgt, px = -u.y, py = u.x;
                               const lx = tgtBorder.x + u.x*36 + px*14, ly = tgtBorder.y + u.y*36 + py*14;
                               return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
                                 <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>{tgtLabel}</text></g>);

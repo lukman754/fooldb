@@ -241,7 +241,8 @@ export function generateDrawioXml(
         'endArrow=none',
         'startArrow=none',
         'strokeColor=#6366f1',
-        'strokeWidth=1.5'
+        'strokeWidth=1.5',
+        'jumpStyle=arc'
       ].join(';');
 
       const edge2Style = [
@@ -253,7 +254,8 @@ export function generateDrawioXml(
         'endArrow=none',
         'startArrow=none',
         'strokeColor=#6366f1',
-        'strokeWidth=1.5'
+        'strokeWidth=1.5',
+        'jumpStyle=arc'
       ].join(';');
 
       const srcLabel = '1';
@@ -306,7 +308,8 @@ export function generateDrawioXml(
         'startFill=0',
         'endArrow=none',
         'strokeColor=#6366f1',
-        'strokeWidth=1.5'
+        'strokeWidth=1.5',
+        'jumpStyle=arc'
       ].join(';');
 
       const endArrow = rel.type === '1:1' ? 'ERone' : 'ERmany';
@@ -320,7 +323,8 @@ export function generateDrawioXml(
         `endArrow=${endArrow}`,
         'endFill=0',
         'strokeColor=#6366f1',
-        'strokeWidth=1.5'
+        'strokeWidth=1.5',
+        'jumpStyle=arc'
       ].join(';');
 
       // Edge 1: Table A -> Diamond
