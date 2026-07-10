@@ -99,7 +99,7 @@ export function generateDrawioXml(layoutData: LayoutData): string {
       // Primary Key: Italic + Underlined, otherwise Normal
       let label = '';
       if (col.isPrimaryKey) {
-        label = `<u><i>${escapeXml(col.name)}</i></u>`;
+        label = escapeXml(`<u><i>${col.name}</i></u>`);
       } else {
         label = escapeXml(col.name);
       }
