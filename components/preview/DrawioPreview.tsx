@@ -48,12 +48,6 @@ export default function DrawioPreview() {
   const relNotation = useDbStore((state) => state.relNotation);
   const setRelNotation = useDbStore((state) => state.setRelNotation);
 
-  // Reset view coordinates on mode changes
-  useEffect(() => {
-    setPan({ x: 0, y: 0 });
-    resetZoom();
-  }, [mode, resetZoom]);
-
   // Determine dynamic canvas size based on active diagram data
   let canvasWidth = 800;
   let canvasHeight = 600;
@@ -84,6 +78,35 @@ export default function DrawioPreview() {
       hasDiagramData = true;
     }
   }
+
+  // Auto-fit view coordinates and scale to container bounds when the active layout/mode changes
+  useEffect(() => {
+    if (!containerRef.current || !hasDiagramData) return;
+    
+    const diagWidth = canvasWidth;
+    const diagHeight = canvasHeight;
+
+    const containerWidth = containerRef.current.clientWidth || 800;
+    const containerHeight = containerRef.current.clientHeight || 600;
+
+    const margin = 45;
+    const targetWidth = containerWidth - margin * 2;
+    const targetHeight = containerHeight - margin * 2;
+
+    const scaleX = targetWidth / diagWidth;
+    const scaleY = targetHeight / diagHeight;
+    let newZoom = Math.min(scaleX, scaleY);
+    
+    // Clamp zoom to prevent microscopic sizes or massive scaling
+    newZoom = Math.max(0.15, Math.min(1.5, newZoom));
+
+    // Centered alignment within container
+    const xOffset = (containerWidth - diagWidth * newZoom) / 2;
+    const yOffset = (containerHeight - diagHeight * newZoom) / 2;
+
+    setPan({ x: xOffset, y: yOffset });
+    setZoom(newZoom);
+  }, [layout, usecaseDiagram, activityDiagram, sequenceDiagram, mode, hasDiagramData, canvasWidth, canvasHeight, setZoom]);
 
   // Pan interaction handlers
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -671,7 +694,7 @@ export default function DrawioPreview() {
                     const attrs = table.columns.map((col, idx) => {
                       const key = `${table.name}-${col.name}`;
                       const defaultAngle = (2 * Math.PI * idx) / N;
-                      const defaultRadius = 85 + N * 5;
+                      const defaultRadius = 60 + N * 3.5;
                       const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
                       const w_attr = Math.max(60, col.name.length * 8 + 16);
                       const h_attr = 30;

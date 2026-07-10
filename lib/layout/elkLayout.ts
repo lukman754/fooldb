@@ -13,10 +13,10 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
   // 1. Create nodes for each table
   for (const table of schema.tables) {
     const N = table.columns.length;
-    const R = 85 + N * 5;
+    const R = 60 + N * 3.5;
     // Account for attributes orbiting around the table plus spacing
-    const bboxWidth = 2 * (R + 80);
-    const bboxHeight = 2 * (R + 60);
+    const bboxWidth = 2 * (R + 45);
+    const bboxHeight = 2 * (R + 35);
 
     children.push({
       id: table.name,
@@ -43,9 +43,9 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
     layoutOptions: {
       'elk.algorithm': 'layered',
       'elk.direction': 'DOWN',
-      'elk.spacing.nodeNode': '100', // Small spacing since node dimensions already include orbits
-      'elk.layered.spacing.edgeNode': '80',
-      'elk.layered.spacing.edgeEdge': '60',
+      'elk.spacing.nodeNode': '50', // Spacing reduced by half to make it more compact
+      'elk.layered.spacing.edgeNode': '40',
+      'elk.layered.spacing.edgeEdge': '30',
       'elk.edgeRouting': 'ORTHOGONAL', // Orthogonal routing for neat lines
       'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF', // Balanced alignment
     },
