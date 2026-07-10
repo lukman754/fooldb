@@ -525,6 +525,24 @@ export default function DrawioPreview() {
 
             {/* A. RENDER MODE: CHEN ERD */}
             {mode === 'erd' && layout && (() => {
+              // Helper to get intersection point on box border (120x45 rect)
+              const getBorderPoint = (center: {x: number; y: number}, toward: {x: number; y: number}, w = 120, h = 45) => {
+                const dx = toward.x - center.x;
+                const dy = toward.y - center.y;
+                if (dx === 0 && dy === 0) return center;
+                const absDx = Math.abs(dx);
+                const absDy = Math.abs(dy);
+                const hw = w / 2;
+                const hh = h / 2;
+                const scaleX = dx !== 0 ? hw / absDx : Infinity;
+                const scaleY = dy !== 0 ? hh / absDy : Infinity;
+                const scale = Math.min(scaleX, scaleY);
+                return {
+                  x: center.x + dx * scale,
+                  y: center.y + dy * scale
+                };
+              };
+
               // ──── Pre-compute diamond positions for ALL edges ────
               const polyLen = (pts: {x:number;y:number}[]) => {
                 let t = 0;
@@ -582,18 +600,30 @@ export default function DrawioPreview() {
                 return { x: dx/l, y: dy/l };
               };
 
-
               return (
                 <>
-                  {/* LAYER 1: Lines split at diamond — Entity → Diamond → Entity */}
+                  {/* LAYER 1: Lines split at diamond — Entity -> Diamond -> Entity */}
                   {layout.edges.map(edge => {
                     const dm = diamondMap.get(edge.id)!;
-                    const src = edge.points[0];
-                    const tgt = edge.points[edge.points.length - 1];
+                    const rel = edge.relationship;
+                    const sn = layout.nodes.find(n => n.id === rel.sourceTable);
+                    const tn = layout.nodes.find(n => n.id === rel.targetTable);
+
+                    const srcPt = edge.points[0];
+                    const srcPt2 = edge.points[1] ?? srcPt;
+                    const tgtPt = edge.points[edge.points.length - 1];
+                    const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
+
+                    const srcCenter = sn ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 } : srcPt;
+                    const tgtCenter = tn ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 } : tgtPt;
+
+                    const srcBorder = getBorderPoint(srcCenter, srcPt2, 120, 45);
+                    const tgtBorder = getBorderPoint(tgtCenter, tgtPt2, 120, 45);
+
                     return (
                       <g key={`lines_${edge.id}`}>
-                        <line x1={src.x} y1={src.y} x2={dm.x} y2={dm.y} stroke="#2563eb" strokeWidth={1.5} />
-                        <line x1={dm.x} y1={dm.y} x2={tgt.x} y2={tgt.y} stroke="#2563eb" strokeWidth={1.5} />
+                        <line x1={srcBorder.x} y1={srcBorder.y} x2={dm.x} y2={dm.y} stroke="#2563eb" strokeWidth={1.5} />
+                        <line x1={dm.x} y1={dm.y} x2={tgtBorder.x} y2={tgtBorder.y} stroke="#2563eb" strokeWidth={1.5} />
                       </g>
                     );
                   })}
@@ -694,15 +724,23 @@ export default function DrawioPreview() {
                     const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
                     const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
 
+                    const sn = layout.nodes.find(n => n.id === rel.sourceTable);
+                    const tn = layout.nodes.find(n => n.id === rel.targetTable);
+                    const srcCenter = sn ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 } : srcPt;
+                    const tgtCenter = tn ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 } : tgtPt;
+
+                    const srcBorder = getBorderPoint(srcCenter, srcPt2, 120, 45);
+                    const tgtBorder = getBorderPoint(tgtCenter, tgtPt2, 120, 45);
+
                     return (
                       <g key={`overlay_${edge.id}`}>
                         {relNotation === 'crowsfoot' ? (
                           <>
                             {/* Source side ticks (Mandatory 1): double ticks at 8px and 13px */}
                             {(() => {
-                              const u = uv(srcPt, srcPt2), px = -u.y, py = u.x;
-                              const bx1 = srcPt.x + u.x * 8, by1 = srcPt.y + u.y * 8;
-                              const bx2 = srcPt.x + u.x * 13, by2 = srcPt.y + u.y * 13;
+                              const u = uv(srcBorder, srcPt2), px = -u.y, py = u.x;
+                              const bx1 = srcBorder.x + u.x * 8, by1 = srcBorder.y + u.y * 8;
+                              const bx2 = srcBorder.x + u.x * 13, by2 = srcBorder.y + u.y * 13;
                               return (
                                 <g>
                                   <line x1={bx1+px*5} y1={by1+py*5} x2={bx1-px*5} y2={by1-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
@@ -713,9 +751,9 @@ export default function DrawioPreview() {
 
                             {/* Target side marker: double ticks for 1:1, crow's foot + tick for many */}
                             {rel.type === '1:1' ? (() => {
-                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
-                              const bx1 = tgtPt.x + u.x * 8, by1 = tgtPt.y + u.y * 8;
-                              const bx2 = tgtPt.x + u.x * 13, by2 = tgtPt.y + u.y * 13;
+                              const u = uv(tgtBorder, tgtPt2), px = -u.y, py = u.x;
+                              const bx1 = tgtBorder.x + u.x * 8, by1 = tgtBorder.y + u.y * 8;
+                              const bx2 = tgtBorder.x + u.x * 13, by2 = tgtBorder.y + u.y * 13;
                               return (
                                 <g>
                                   <line x1={bx1+px*5} y1={by1+py*5} x2={bx1-px*5} y2={by1-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
@@ -723,10 +761,10 @@ export default function DrawioPreview() {
                                 </g>
                               );
                             })() : (() => {
-                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
-                              const near = { x: tgtPt.x + u.x*8, y: tgtPt.y + u.y*8 };
-                              const far = { x: tgtPt.x + u.x*13, y: tgtPt.y + u.y*13 };
-                              const ox = tgtPt.x + u.x*2, oy = tgtPt.y + u.y*2;
+                              const u = uv(tgtBorder, tgtPt2), px = -u.y, py = u.x;
+                              const near = { x: tgtBorder.x + u.x*8, y: tgtBorder.y + u.y*8 };
+                              const far = { x: tgtBorder.x + u.x*13, y: tgtBorder.y + u.y*13 };
+                              const ox = tgtBorder.x + u.x*2, oy = tgtBorder.y + u.y*2;
                               return (
                                 <g>
                                   <line x1={ox} y1={oy} x2={far.x+px*5} y2={far.y+py*5} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
@@ -741,14 +779,14 @@ export default function DrawioPreview() {
                           <>
                             {/* Text labels: positioned 36px back along the line */}
                             {(() => {
-                              const u = uv(srcPt, srcPt2), px = -u.y, py = u.x;
-                              const lx = srcPt.x + u.x*36 + px*14, ly = srcPt.y + u.y*36 + py*14;
+                              const u = uv(srcBorder, srcPt2), px = -u.y, py = u.x;
+                              const lx = srcBorder.x + u.x*36 + px*14, ly = srcBorder.y + u.y*36 + py*14;
                               return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
                                 <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>1</text></g>);
                             })()}
                             {(() => {
-                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
-                              const lx = tgtPt.x + u.x*36 + px*14, ly = tgtPt.y + u.y*36 + py*14;
+                              const u = uv(tgtBorder, tgtPt2), px = -u.y, py = u.x;
+                              const lx = tgtBorder.x + u.x*36 + px*14, ly = tgtBorder.y + u.y*36 + py*14;
                               return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
                                 <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>{tgtLabel}</text></g>);
                             })()}
