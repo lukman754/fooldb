@@ -45,6 +45,13 @@ interface DbState {
   setApiKey: (key: string) => void;
   triggerAiLabeling: () => Promise<void>;
   initializeStore: () => void;
+  attrPositions: { [key: string]: { angle: number; radius: number } };
+  setAttrPosition: (key: string, pos: { angle: number; radius: number }) => void;
+  resetAttrPosition: (key: string) => void;
+  resetTableAttrPositions: (tableName: string, colNames: string[]) => void;
+  resetAllAttrPositions: () => void;
+  relNotation: 'crowsfoot' | 'label';
+  setRelNotation: (notation: 'crowsfoot' | 'label') => void;
 }
 
 const DEFAULT_SQL = `-- FoolDB E-commerce Sample Schema
@@ -159,8 +166,19 @@ Server -> Browser : Order success JSON (201 Created)
 Browser -> Customer : Display Order Success dashboard
 `;
 
-export const useDbStore = create<DbState>((set, get) => ({
-  mode: 'erd',
+export const useDbStore = create<DbState>((set, get) => {
+  let initialAttrPositions = {};
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem('fooldb_attr_positions');
+      if (saved) initialAttrPositions = JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+  }
+
+  return {
+    mode: 'erd',
   sqlCode: DEFAULT_SQL,
   usecaseCode: DEFAULT_USECASE,
   activityCode: DEFAULT_ACTIVITY,
@@ -369,6 +387,59 @@ export const useDbStore = create<DbState>((set, get) => ({
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('fooldb_gemini_key') || '';
       set({ apiKey: savedKey });
+      try {
+        const saved = localStorage.getItem('fooldb_attr_positions');
+        if (saved) {
+          set({ attrPositions: JSON.parse(saved) });
+        }
+      } catch {
+        // ignore
+      }
     }
-  }
-}));
+  },
+
+  attrPositions: initialAttrPositions,
+  setAttrPosition: (key, pos) => {
+    set((state) => {
+      const updated = {
+        ...state.attrPositions,
+        [key]: pos
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('fooldb_attr_positions', JSON.stringify(updated));
+      }
+      return { attrPositions: updated };
+    });
+  },
+  resetAttrPosition: (key) => {
+    set((state) => {
+      const updated = { ...state.attrPositions };
+      delete updated[key];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('fooldb_attr_positions', JSON.stringify(updated));
+      }
+      return { attrPositions: updated };
+    });
+  },
+  resetTableAttrPositions: (tableName, colNames) => {
+    set((state) => {
+      const updated = { ...state.attrPositions };
+      colNames.forEach((name) => {
+        delete updated[`${tableName}-${name}`];
+      });
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('fooldb_attr_positions', JSON.stringify(updated));
+      }
+      return { attrPositions: updated };
+    });
+  },
+  resetAllAttrPositions: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('fooldb_attr_positions');
+    }
+    set({ attrPositions: {} });
+  },
+  relNotation: 'crowsfoot',
+  setRelNotation: (notation) => set({ relNotation: notation }),
+};
+});

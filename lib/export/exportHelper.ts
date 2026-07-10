@@ -13,13 +13,21 @@ export function downloadFile(content: string | Blob, filename: string, mimeType:
   URL.revokeObjectURL(url);
 }
 
-export function exportToDrawio(layoutData: LayoutData, filename: string = 'database.drawio') {
-  const xml = generateDrawioXml(layoutData);
+export function exportToDrawio(
+  layoutData: LayoutData,
+  filename: string = 'database.drawio',
+  attrPositions?: { [key: string]: { angle: number; radius: number } }
+) {
+  const xml = generateDrawioXml(layoutData, attrPositions);
   downloadFile(xml, filename, 'application/xml');
 }
 
-export function exportToXml(layoutData: LayoutData, filename: string = 'database.xml') {
-  const xml = generateDrawioXml(layoutData);
+export function exportToXml(
+  layoutData: LayoutData,
+  filename: string = 'database.xml',
+  attrPositions?: { [key: string]: { angle: number; radius: number } }
+) {
+  const xml = generateDrawioXml(layoutData, attrPositions);
   downloadFile(xml, filename, 'text/xml');
 }
 

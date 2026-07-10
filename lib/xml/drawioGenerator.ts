@@ -1,4 +1,4 @@
-import { LayoutData } from '@/types';
+import { LayoutData, Column } from '@/types';
 
 // Helper to escape XML characters
 function escapeXml(unsafe: string): string {
@@ -47,7 +47,11 @@ export function getRelationshipLabel(source: string, target: string): string {
   return 'Memiliki';
 }
 
-export function generateDrawioXml(layoutData: LayoutData): string {
+export function generateDrawioXml(
+  layoutData: LayoutData,
+  attrPositions?: { [key: string]: { angle: number; radius: number } },
+  relNotation: 'crowsfoot' | 'label' = 'crowsfoot'
+): string {
   let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
   xml += '<mxfile host="app.diagrams.net">\n';
   xml += '  <diagram name="Page-1" id="gHxV2qfAr26GcpHgv2kp">\n';
@@ -78,23 +82,38 @@ export function generateDrawioXml(layoutData: LayoutData): string {
 
     // Calculate orbiting positions for attributes
     const N = table.columns.length;
-    
-    // Dynamically size radius to prevent overlapping attributes
-    const R = 85 + N * 5;
 
-    for (let i = 0; i < N; i++) {
-      const col = table.columns[i];
-      const colId = `col_${table.name}_${col.name}`;
-      const edgeColId = `edge_col_${table.name}_${col.name}`;
-      
-      const angle = (2 * Math.PI * i) / N;
-      
-      // Calculate width of ellipse based on column name length
+    // 1. Build initial list of attribute positions
+    const attrs = table.columns.map((col, idx) => {
+      const key = `${table.name}-${col.name}`;
+      const defaultAngle = (2 * Math.PI * idx) / N;
+      const defaultRadius = 85 + N * 5;
+      const pos = (attrPositions && attrPositions[key]) || { angle: defaultAngle, radius: defaultRadius };
       const w_attr = Math.max(60, col.name.length * 8 + 16);
       const h_attr = 30;
-      
-      const ax = cx + R * Math.cos(angle) - w_attr / 2;
-      const ay = cy + R * Math.sin(angle) - h_attr / 2;
+
+      return {
+        col,
+        key,
+        width: w_attr,
+        height: h_attr,
+        angle: pos.angle,
+        radius: pos.radius,
+        x: cx + pos.radius * Math.cos(pos.angle),
+        y: cy + pos.radius * Math.sin(pos.angle)
+      };
+    });
+
+    // 2. Resolve collisions so they don't overlap
+    resolveCollisions(attrs, cx, cy);
+
+    for (const item of attrs) {
+      const col = item.col;
+      const colId = `col_${table.name}_${col.name}`;
+      const edgeColId = `edge_col_${table.name}_${col.name}`;
+
+      const ax = item.x - item.width / 2;
+      const ay = item.y - item.height / 2;
 
       // Primary Key: Italic + Underlined, otherwise Normal
       let label = '';
@@ -111,7 +130,7 @@ export function generateDrawioXml(layoutData: LayoutData): string {
 
       // 1a. Attribute Cell (Ellipse)
       xml += `        <mxCell id="${colId}" parent="1" style="${attrStyle}" value="${label}" vertex="1">\n`;
-      xml += `          <mxGeometry x="${ax.toFixed(1)}" y="${ay.toFixed(1)}" width="${w_attr}" height="${h_attr}" as="geometry" />\n`;
+      xml += `          <mxGeometry x="${ax.toFixed(1)}" y="${ay.toFixed(1)}" width="${item.width}" height="${item.height}" as="geometry" />\n`;
       xml += '        </mxCell>\n';
 
       // 1b. Connection Edge from Table to Attribute (Simple solid line)
@@ -131,41 +150,76 @@ export function generateDrawioXml(layoutData: LayoutData): string {
     const sourceTableId = `table_${rel.sourceTable}`;
     const targetTableId = `table_${rel.targetTable}`;
 
-    // Crow foot arrowheads
-    // Start Arrow: 1 side (ERone)
-    const startArrow = 'ERone';
-    // End Arrow: Many (ERmany) unless it's a 1:1 relationship
-    const endArrow = rel.type === '1:1' ? 'ERone' : 'ERmany';
+    if (relNotation === 'label') {
+      // Plain line with no arrowheads, labels added as child cells
+      const edgeStyleLabel = [
+        'edgeStyle=orthogonalEdgeStyle',
+        'rounded=0',
+        'orthogonalLoop=1',
+        'jettySize=auto',
+        'html=1',
+        'endArrow=none',
+        'startArrow=none',
+        'strokeColor=#6366f1',
+        'strokeWidth=1.5'
+      ].join(';');
 
-    // Relationship Edge Style
-    const edgeStyle = [
-      'edgeStyle=orthogonalEdgeStyle',
-      'rounded=0',
-      'orthogonalLoop=1',
-      'jettySize=auto',
-      'html=1',
-      `startArrow=${startArrow}`,
-      'startFill=0',
-      `endArrow=${endArrow}`,
-      'endFill=0',
-      'strokeColor=#6366f1', // Beautiful Indigo connector
-      'strokeWidth=1.5'
-    ].join(';');
+      // Determine src/tgt labels
+      const srcLabel = '1';
+      const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
 
-    xml += `        <mxCell id="${edgeId}" edge="1" parent="1" source="${sourceTableId}" style="${edgeStyle}" target="${targetTableId}">\n`;
-    xml += '          <mxGeometry relative="1" as="geometry">\n';
-    
-    // Add computed bend points from layout
-    if (edge.points.length > 0) {
-      xml += '            <Array as="points">\n';
-      for (const pt of edge.points.slice(1, -1)) {
-        xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
+      xml += `        <mxCell id="${edgeId}" edge="1" parent="1" source="${sourceTableId}" style="${edgeStyleLabel}" target="${targetTableId}">\n`;
+      xml += '          <mxGeometry relative="1" as="geometry">\n';
+      if (edge.points.length > 0) {
+        xml += '            <Array as="points">\n';
+        for (const pt of edge.points.slice(1, -1)) {
+          xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
+        }
+        xml += '            </Array>\n';
       }
-      xml += '            </Array>\n';
+      xml += '          </mxGeometry>\n';
+      xml += '        </mxCell>\n';
+
+      // Source label child cell ("1", aligned left/start)
+      xml += `        <mxCell id="${edgeId}_src" value="${escapeXml(srcLabel)}" connectable="0" parent="${edgeId}" style="resizable=0;html=1;whiteSpace=wrap;align=left;verticalAlign=bottom;" vertex="1">\n`;
+      xml += '          <mxGeometry relative="1" x="-1" as="geometry"/>\n';
+      xml += '        </mxCell>\n';
+
+      // Target label child cell ("N" or "1", aligned right/end)
+      xml += `        <mxCell id="${edgeId}_tgt" value="${escapeXml(tgtLabel)}" connectable="0" parent="${edgeId}" style="resizable=0;html=1;whiteSpace=wrap;align=right;verticalAlign=bottom;" vertex="1">\n`;
+      xml += '          <mxGeometry relative="1" x="1" as="geometry"/>\n';
+      xml += '        </mxCell>\n';
+    } else {
+      // Crow's foot notation
+      const startArrow = 'ERone';
+      const endArrow = rel.type === '1:1' ? 'ERone' : 'ERmany';
+
+      const edgeStyle = [
+        'edgeStyle=orthogonalEdgeStyle',
+        'rounded=0',
+        'orthogonalLoop=1',
+        'jettySize=auto',
+        'html=1',
+        `startArrow=${startArrow}`,
+        'startFill=0',
+        `endArrow=${endArrow}`,
+        'endFill=0',
+        'strokeColor=#6366f1',
+        'strokeWidth=1.5'
+      ].join(';');
+
+      xml += `        <mxCell id="${edgeId}" edge="1" parent="1" source="${sourceTableId}" style="${edgeStyle}" target="${targetTableId}">\n`;
+      xml += '          <mxGeometry relative="1" as="geometry">\n';
+      if (edge.points.length > 0) {
+        xml += '            <Array as="points">\n';
+        for (const pt of edge.points.slice(1, -1)) {
+          xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
+        }
+        xml += '            </Array>\n';
+      }
+      xml += '          </mxGeometry>\n';
+      xml += '        </mxCell>\n';
     }
-    
-    xml += '          </mxGeometry>\n';
-    xml += '        </mxCell>\n';
 
     // 3. Generate Diamond Relationship Labels (Placed at edge midpoint)
     let midX = 0;
@@ -214,4 +268,68 @@ export function generateDrawioXml(layoutData: LayoutData): string {
   xml += '</mxfile>';
 
   return xml;
+}
+
+interface AttrPosition {
+  col: Column;
+  key: string;
+  width: number;
+  height: number;
+  angle: number;
+  radius: number;
+  x: number;
+  y: number;
+}
+
+function resolveCollisions(attrs: AttrPosition[], cx: number, cy: number) {
+  const maxIterations = 25;
+  let changed = true;
+
+  for (let iter = 0; iter < maxIterations && changed; iter++) {
+    changed = false;
+    for (let i = 0; i < attrs.length; i++) {
+      for (let j = i + 1; j < attrs.length; j++) {
+        const a = attrs[i];
+        const b = attrs[j];
+
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const minXDist = (a.width + b.width) / 2 + 8;
+        const minYDist = (a.height + b.height) / 2 + 8;
+
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+
+        if (absDx < minXDist && absDy < minYDist) {
+          changed = true;
+          const overlapX = minXDist - absDx;
+          const overlapY = minYDist - absDy;
+
+          let pushX = 0;
+          let pushY = 0;
+
+          if (overlapX < overlapY) {
+            pushX = overlapX * (dx >= 0 ? 0.52 : -0.52);
+          } else {
+            pushY = overlapY * (dy >= 0 ? 0.52 : -0.52);
+          }
+
+          a.x += pushX;
+          a.y += pushY;
+          b.x -= pushX;
+          b.y -= pushY;
+
+          const dxA = a.x - cx;
+          const dyA = a.y - cy;
+          a.radius = Math.max(50, Math.min(350, Math.sqrt(dxA * dxA + dyA * dyA)));
+          a.angle = Math.atan2(dyA, dxA);
+
+          const dxB = b.x - cx;
+          const dyB = b.y - cy;
+          b.radius = Math.max(50, Math.min(350, Math.sqrt(dxB * dxB + dyB * dyB)));
+          b.angle = Math.atan2(dyB, dxB);
+        }
+      }
+    }
+  }
 }

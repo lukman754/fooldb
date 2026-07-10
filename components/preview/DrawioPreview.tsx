@@ -39,23 +39,14 @@ export default function DrawioPreview() {
   // Dragging and positioning states for attributes
   const [draggingAttr, setDraggingAttr] = useState<{ tableName: string; colName: string } | null>(null);
   const [selectedAttr, setSelectedAttr] = useState<{ tableName: string; colName: string } | null>(null);
-  const [attrPositions, setAttrPositions] = useState<{
-    [key: string]: { angle: number; radius: number };
-  }>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('fooldb_attr_positions');
-        return saved ? JSON.parse(saved) : {};
-      } catch {
-        return {};
-      }
-    }
-    return {};
-  });
-
-  useEffect(() => {
-    localStorage.setItem('fooldb_attr_positions', JSON.stringify(attrPositions));
-  }, [attrPositions]);
+  
+  const attrPositions = useDbStore((state) => state.attrPositions);
+  const setAttrPosition = useDbStore((state) => state.setAttrPosition);
+  const resetAttrPosition = useDbStore((state) => state.resetAttrPosition);
+  const resetTableAttrPositions = useDbStore((state) => state.resetTableAttrPositions);
+  const resetAllAttrPositions = useDbStore((state) => state.resetAllAttrPositions);
+  const relNotation = useDbStore((state) => state.relNotation);
+  const setRelNotation = useDbStore((state) => state.setRelNotation);
 
   // Reset view coordinates on mode changes
   useEffect(() => {
@@ -118,10 +109,7 @@ export default function DrawioPreview() {
         const radius = Math.max(50, Math.min(350, Math.sqrt(dx * dx + dy * dy)));
         const angle = Math.atan2(dy, dx);
 
-        setAttrPositions((prev) => ({
-          ...prev,
-          [`${draggingAttr.tableName}-${draggingAttr.colName}`]: { angle, radius },
-        }));
+        setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, { angle, radius });
       }
       return;
     }
@@ -196,6 +184,33 @@ export default function DrawioPreview() {
                 <Filter className="h-3.5 w-3.5" />
                 <span>Filter tables ({schema.tables.length - excludedTables.length}/{schema.tables.length})</span>
               </button>
+
+              {/* Relationship Notation Toggle */}
+              <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden">
+                <button
+                  onClick={() => setRelNotation('crowsfoot')}
+                  title="Crow's Foot notation"
+                  className={`h-7 px-2 text-[10px] font-bold transition ${
+                    relNotation === 'crowsfoot'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                  }`}
+                >
+                   crow’s foot
+                </button>
+                <div className="w-px h-4 bg-zinc-700" />
+                <button
+                  onClick={() => setRelNotation('label')}
+                  title="1:N / M:N label notation"
+                  className={`h-7 px-2 text-[10px] font-bold transition ${
+                    relNotation === 'label'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                  }`}
+                >
+                  1:N / M:N
+                </button>
+              </div>
 
               <button
                 onClick={() => {
@@ -347,7 +362,11 @@ export default function DrawioPreview() {
         )}
 
         {selectedAttr && (
-          <div className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-10 select-none">
+          <div
+            className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-10 select-none"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
               <div className="flex items-center gap-1.5">
                 <Sliders className="h-4 w-4 text-blue-500" />
@@ -405,10 +424,7 @@ export default function DrawioPreview() {
                       onChange={(e) => {
                         const newDeg = parseInt(e.target.value, 10);
                         const rad = (newDeg * Math.PI) / 180;
-                        setAttrPositions((prev) => ({
-                          ...prev,
-                          [key]: { ...pos, angle: rad },
-                        }));
+                        setAttrPosition(key, { ...pos, angle: rad });
                       }}
                       className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
                     />
@@ -427,10 +443,7 @@ export default function DrawioPreview() {
                       value={radiusVal}
                       onChange={(e) => {
                         const newRad = parseInt(e.target.value, 10);
-                        setAttrPositions((prev) => ({
-                          ...prev,
-                          [key]: { ...pos, radius: newRad },
-                        }));
+                        setAttrPosition(key, { ...pos, radius: newRad });
                       }}
                       className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
                     />
@@ -441,11 +454,7 @@ export default function DrawioPreview() {
                     <div className="flex gap-2">
                       <button
                         onClick={() => {
-                          setAttrPositions((prev) => {
-                            const updated = { ...prev };
-                            delete updated[key];
-                            return updated;
-                          });
+                          resetAttrPosition(key);
                         }}
                         className="flex-1 py-1.5 text-center text-[10px] font-semibold text-zinc-400 bg-zinc-950 border border-zinc-800 rounded hover:bg-zinc-850 hover:text-zinc-200 transition"
                       >
@@ -453,13 +462,10 @@ export default function DrawioPreview() {
                       </button>
                       <button
                         onClick={() => {
-                          setAttrPositions((prev) => {
-                            const updated = { ...prev };
-                            node.table.columns.forEach((c) => {
-                              delete updated[`${selectedAttr.tableName}-${c.name}`];
-                            });
-                            return updated;
-                          });
+                          resetTableAttrPositions(
+                            selectedAttr.tableName,
+                            node.table.columns.map((c) => c.name)
+                          );
                         }}
                         className="flex-1 py-1.5 text-center text-[10px] font-semibold text-zinc-400 bg-zinc-950 border border-zinc-800 rounded hover:bg-zinc-850 hover:text-zinc-200 transition"
                       >
@@ -469,7 +475,7 @@ export default function DrawioPreview() {
                     <button
                       onClick={() => {
                         if (confirm('Reset all attribute positions in the diagram?')) {
-                          setAttrPositions({});
+                          resetAllAttrPositions();
                         }
                       }}
                       className="w-full py-1.5 text-center text-[10px] font-semibold text-red-400 bg-red-950/20 border border-red-900/30 rounded hover:bg-red-950/40 hover:text-red-300 transition"
@@ -559,9 +565,69 @@ export default function DrawioPreview() {
                   const lines = cleanLabel.split('\n');
                   const diamondPoints = `${midX},${midY - 22.5} ${midX + 60},${midY} ${midX},${midY + 22.5} ${midX - 60},${midY}`;
 
+                  // Compute end-of-line label positions for label notation
+                  const srcPt  = edge.points[0];
+                  const srcPt2 = edge.points[1] ?? edge.points[0];
+                  const tgtPt  = edge.points[edge.points.length - 1];
+                  const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
+
+                  // Offset text slightly inward from endpoint along line direction
+                  const srcDx = srcPt2.x - srcPt.x;
+                  const srcDy = srcPt2.y - srcPt.y;
+                  const srcLen = Math.sqrt(srcDx * srcDx + srcDy * srcDy) || 1;
+                  const srcLabelX = srcPt.x + (srcDx / srcLen) * 22;
+                  const srcLabelY = srcPt.y + (srcDy / srcLen) * 22;
+
+                  const tgtDx = tgtPt2.x - tgtPt.x;
+                  const tgtDy = tgtPt2.y - tgtPt.y;
+                  const tgtLen = Math.sqrt(tgtDx * tgtDx + tgtDy * tgtDy) || 1;
+                  const tgtLabelX = tgtPt.x + (tgtDx / tgtLen) * 22;
+                  const tgtLabelY = tgtPt.y + (tgtDy / tgtLen) * 22;
+
+                  // Determine labels: source always "1", target depends on type
+                  const srcLabel = '1';
+                  const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
+
                   return (
                     <g key={edge.id} className="group">
-                      <path d={pathD} fill="none" stroke="#2563eb" strokeWidth={1.5} markerStart="url(#one-marker)" markerEnd={rel.type === '1:1' ? 'url(#one-one-marker)' : 'url(#many-marker)'} />
+                      {relNotation === 'crowsfoot' ? (
+                        <path
+                          d={pathD}
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth={1.5}
+                          markerStart="url(#one-marker)"
+                          markerEnd={rel.type === '1:1' ? 'url(#one-one-marker)' : 'url(#many-marker)'}
+                        />
+                      ) : (
+                        <>
+                          <path d={pathD} fill="none" stroke="#2563eb" strokeWidth={1.5} />
+                          {/* Source label (always "1") */}
+                          <text
+                            x={srcLabelX}
+                            y={srcLabelY}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            fill="#6366f1"
+                            className="text-[11px] font-bold pointer-events-none"
+                            style={{ fontFamily: 'monospace' }}
+                          >
+                            {srcLabel}
+                          </text>
+                          {/* Target label (N or 1) */}
+                          <text
+                            x={tgtLabelX}
+                            y={tgtLabelY}
+                            textAnchor="middle"
+                            dominantBaseline="middle"
+                            fill="#6366f1"
+                            className="text-[11px] font-bold pointer-events-none"
+                            style={{ fontFamily: 'monospace' }}
+                          >
+                            {tgtLabel}
+                          </text>
+                        </>
+                      )}
                       <g className="cursor-pointer">
                         <polygon points={diamondPoints} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
                         {lines.length > 1 ? (

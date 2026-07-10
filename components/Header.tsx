@@ -234,6 +234,8 @@ export default function Header() {
   const usecaseDiagram = useDbStore((state) => state.usecaseDiagram);
   const activityDiagram = useDbStore((state) => state.activityDiagram);
   const sequenceDiagram = useDbStore((state) => state.sequenceDiagram);
+  const attrPositions = useDbStore((state) => state.attrPositions);
+  const relNotation = useDbStore((state) => state.relNotation);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -334,7 +336,7 @@ export default function Header() {
     let filenameBase = 'diagram';
 
     if (mode === 'erd') {
-      if (layout) xml = generateDrawioXml(layout);
+      if (layout) xml = generateDrawioXml(layout, attrPositions, relNotation);
       filenameBase = 'database_erd';
     } else if (mode === 'lrs' || mode === 'transformation') {
       if (layout) xml = generateLrsXml(layout);
