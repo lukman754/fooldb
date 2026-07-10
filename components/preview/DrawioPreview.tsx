@@ -581,7 +581,7 @@ export default function DrawioPreview() {
                 const dx = b.x - a.x, dy = b.y - a.y, l = Math.sqrt(dx*dx+dy*dy) || 1;
                 return { x: dx/l, y: dy/l };
               };
-              const INDENT = 38;
+
 
               return (
                 <>
@@ -698,41 +698,57 @@ export default function DrawioPreview() {
                       <g key={`overlay_${edge.id}`}>
                         {relNotation === 'crowsfoot' ? (
                           <>
+                            {/* Source side ticks (Mandatory 1): double ticks at 8px and 13px */}
                             {(() => {
                               const u = uv(srcPt, srcPt2), px = -u.y, py = u.x;
-                              const bx = srcPt.x + u.x * INDENT, by = srcPt.y + u.y * INDENT;
-                              return <line x1={bx+px*8} y1={by+py*8} x2={bx-px*8} y2={by-py*8} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
-                            })()}
-                            {rel.type === '1:1' ? (() => {
-                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
-                              const bx = tgtPt.x + u.x * INDENT, by = tgtPt.y + u.y * INDENT;
-                              return <line x1={bx+px*8} y1={by+py*8} x2={bx-px*8} y2={by-py*8} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
-                            })() : (() => {
-                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
-                              const near = { x: tgtPt.x + u.x*18, y: tgtPt.y + u.y*18 };
-                              const far = { x: tgtPt.x + u.x*INDENT, y: tgtPt.y + u.y*INDENT };
-                              const ox = tgtPt.x + u.x*8, oy = tgtPt.y + u.y*8;
+                              const bx1 = srcPt.x + u.x * 8, by1 = srcPt.y + u.y * 8;
+                              const bx2 = srcPt.x + u.x * 13, by2 = srcPt.y + u.y * 13;
                               return (
                                 <g>
-                                  <line x1={ox} y1={oy} x2={far.x+px*9} y2={far.y+py*9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                  <line x1={bx1+px*5} y1={by1+py*5} x2={bx1-px*5} y2={by1-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                                  <line x1={bx2+px*5} y1={by2+py*5} x2={bx2-px*5} y2={by2-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                                </g>
+                              );
+                            })()}
+
+                            {/* Target side marker: double ticks for 1:1, crow's foot + tick for many */}
+                            {rel.type === '1:1' ? (() => {
+                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
+                              const bx1 = tgtPt.x + u.x * 8, by1 = tgtPt.y + u.y * 8;
+                              const bx2 = tgtPt.x + u.x * 13, by2 = tgtPt.y + u.y * 13;
+                              return (
+                                <g>
+                                  <line x1={bx1+px*5} y1={by1+py*5} x2={bx1-px*5} y2={by1-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                                  <line x1={bx2+px*5} y1={by2+py*5} x2={bx2-px*5} y2={by2-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                                </g>
+                              );
+                            })() : (() => {
+                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
+                              const near = { x: tgtPt.x + u.x*8, y: tgtPt.y + u.y*8 };
+                              const far = { x: tgtPt.x + u.x*13, y: tgtPt.y + u.y*13 };
+                              const ox = tgtPt.x + u.x*2, oy = tgtPt.y + u.y*2;
+                              return (
+                                <g>
+                                  <line x1={ox} y1={oy} x2={far.x+px*5} y2={far.y+py*5} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
                                   <line x1={ox} y1={oy} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                  <line x1={ox} y1={oy} x2={far.x-px*9} y2={far.y-py*9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                  <line x1={near.x+px*7} y1={near.y+py*7} x2={near.x-px*7} y2={near.y-py*7} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                                  <line x1={ox} y1={oy} x2={far.x-px*5} y2={far.y-py*5} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                  <line x1={near.x+px*5} y1={near.y+py*5} x2={near.x-px*5} y2={near.y-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
                                 </g>
                               );
                             })()}
                           </>
                         ) : (
                           <>
+                            {/* Text labels: positioned 36px back along the line */}
                             {(() => {
                               const u = uv(srcPt, srcPt2), px = -u.y, py = u.x;
-                              const lx = srcPt.x + u.x*(INDENT+6) + px*14, ly = srcPt.y + u.y*(INDENT+6) + py*14;
+                              const lx = srcPt.x + u.x*36 + px*14, ly = srcPt.y + u.y*36 + py*14;
                               return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
                                 <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>1</text></g>);
                             })()}
                             {(() => {
                               const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
-                              const lx = tgtPt.x + u.x*(INDENT+6) + px*14, ly = tgtPt.y + u.y*(INDENT+6) + py*14;
+                              const lx = tgtPt.x + u.x*36 + px*14, ly = tgtPt.y + u.y*36 + py*14;
                               return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
                                 <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>{tgtLabel}</text></g>);
                             })()}
