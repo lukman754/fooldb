@@ -652,86 +652,102 @@ export default function DrawioPreview() {
                   );
                 })}
 
-                {/* LAYER 3: Relationship overlays — crow's foot shapes / 1:N pill labels + diamond labels
-                    Rendered LAST so they always appear above entities and attributes */}
-                {layout.edges.map((edge) => {
-                  const rel = edge.relationship;
-
-                  // Midpoint for diamond
-                  let midX = 0, midY = 0;
-                  if (edge.points.length >= 2) {
-                    const len = edge.points.length;
-                    if (len % 2 === 0) {
-                      midX = (edge.points[len / 2 - 1].x + edge.points[len / 2].x) / 2;
-                      midY = (edge.points[len / 2 - 1].y + edge.points[len / 2].y) / 2;
+                {/* LAYER 3: Relationship overlays — crow's foot / 1:N labels + diamond labels
+                    Pre-compute all diamonds, resolve collisions, then render */}
+                {(() => {
+                  // 1. Build diamond info for all edges
+                  const diamonds = layout.edges.map((edge) => {
+                    const rel = edge.relationship;
+                    let midX = 0, midY = 0;
+                    if (edge.points.length >= 2) {
+                      const len = edge.points.length;
+                      if (len % 2 === 0) {
+                        midX = (edge.points[len / 2 - 1].x + edge.points[len / 2].x) / 2;
+                        midY = (edge.points[len / 2 - 1].y + edge.points[len / 2].y) / 2;
+                      } else {
+                        midX = edge.points[Math.floor(len / 2)].x;
+                        midY = edge.points[Math.floor(len / 2)].y;
+                      }
                     } else {
-                      midX = edge.points[Math.floor(len / 2)].x;
-                      midY = edge.points[Math.floor(len / 2)].y;
+                      const sn = layout.nodes.find(n => n.id === rel.sourceTable);
+                      const tn = layout.nodes.find(n => n.id === rel.targetTable);
+                      if (sn && tn) { midX = (sn.x + tn.x) / 2; midY = (sn.y + tn.y) / 2; }
                     }
-                  } else {
-                    const sn = layout.nodes.find(n => n.id === rel.sourceTable);
-                    const tn = layout.nodes.find(n => n.id === rel.targetTable);
-                    if (sn && tn) { midX = (sn.x + tn.x) / 2; midY = (sn.y + tn.y) / 2; }
+                    return { edge, rel, x: midX, y: midY, width: 120, height: 45 };
+                  });
+
+                  // 2. Resolve diamond collisions (push apart if overlapping)
+                  const maxIter = 20;
+                  for (let iter = 0; iter < maxIter; iter++) {
+                    let moved = false;
+                    for (let i = 0; i < diamonds.length; i++) {
+                      for (let j = i + 1; j < diamonds.length; j++) {
+                        const a = diamonds[i];
+                        const b = diamonds[j];
+                        const dx = a.x - b.x;
+                        const dy = a.y - b.y;
+                        const minX = (a.width + b.width) / 2 + 6;
+                        const minY = (a.height + b.height) / 2 + 6;
+                        if (Math.abs(dx) < minX && Math.abs(dy) < minY) {
+                          moved = true;
+                          const ox = minX - Math.abs(dx);
+                          const oy = minY - Math.abs(dy);
+                          if (ox < oy) {
+                            const push = ox * 0.52 * (dx >= 0 ? 1 : -1);
+                            a.x += push; b.x -= push;
+                          } else {
+                            const push = oy * 0.52 * (dy >= 0 ? 1 : -1);
+                            a.y += push; b.y -= push;
+                          }
+                        }
+                      }
+                    }
+                    if (!moved) break;
                   }
 
-                  const label = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
-                  const cleanLabel = label.replace(/<div>/g, '\n').replace(/<\/div>/g, '');
-                  const lines = cleanLabel.split('\n');
-                  const diamondPoints = `${midX},${midY - 22.5} ${midX + 60},${midY} ${midX},${midY + 22.5} ${midX - 60},${midY}`;
-
-                  // Endpoint vectors
-                  const srcPt = edge.points[0];
-                  const srcPt2 = edge.points[1] ?? srcPt;
-                  const tgtPt = edge.points[edge.points.length - 1];
-                  const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
-
-                  // Helper: direction unit vector FROM a TOWARD b
+                  // Helper: unit vector
                   const unitVec = (a: {x: number; y: number}, b: {x: number; y: number}) => {
-                    const dx = b.x - a.x;
-                    const dy = b.y - a.y;
+                    const dx = b.x - a.x; const dy = b.y - a.y;
                     const l = Math.sqrt(dx * dx + dy * dy) || 1;
                     return { x: dx / l, y: dy / l };
                   };
 
-                  const INDENT = 28;
+                  // INDENT for crow's foot / label — 10px further back from tip
+                  const INDENT = 38;
 
-                  // Helper: render "one" tick — perpendicular bar
+                  // Render "one" tick
                   const renderOneTick = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
                     const u = unitVec(pt, toward);
-                    const px = -u.y;
-                    const py = u.x;
-                    const bx = pt.x + u.x * INDENT;
-                    const by = pt.y + u.y * INDENT;
+                    const px = -u.y; const py = u.x;
+                    const bx = pt.x + u.x * INDENT; const by = pt.y + u.y * INDENT;
                     return (
                       <line x1={bx + px * 8} y1={by + py * 8} x2={bx - px * 8} y2={by - py * 8}
                         stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
                     );
                   };
 
-                  // Helper: render crow's foot
+                  // Render crow's foot
                   const renderCrowsFoot = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
                     const u = unitVec(pt, toward);
-                    const px = -u.y;
-                    const py = u.x;
-                    const near = { x: pt.x + u.x * 10, y: pt.y + u.y * 10 };
+                    const px = -u.y; const py = u.x;
+                    const near = { x: pt.x + u.x * 18, y: pt.y + u.y * 18 };
                     const far = { x: pt.x + u.x * INDENT, y: pt.y + u.y * INDENT };
                     return (
                       <g>
-                        <line x1={pt.x} y1={pt.y} x2={far.x + px * 9} y2={far.y + py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                        <line x1={pt.x} y1={pt.y} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                        <line x1={pt.x} y1={pt.y} x2={far.x - px * 9} y2={far.y - py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                        <line x1={pt.x + u.x * 8} y1={pt.y + u.y * 8} x2={far.x + px * 9} y2={far.y + py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                        <line x1={pt.x + u.x * 8} y1={pt.y + u.y * 8} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                        <line x1={pt.x + u.x * 8} y1={pt.y + u.y * 8} x2={far.x - px * 9} y2={far.y - py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
                         <line x1={near.x + px * 7} y1={near.y + py * 7} x2={near.x - px * 7} y2={near.y - py * 7} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
                       </g>
                     );
                   };
 
-                  // Helper: render text label pill
+                  // Render text label pill
                   const renderLabelPill = (pt: {x: number; y: number}, toward: {x: number; y: number}, text: string) => {
                     const u = unitVec(pt, toward);
-                    const px = -u.y;
-                    const py = u.x;
-                    const lx = pt.x + u.x * 36 + px * 14;
-                    const ly = pt.y + u.y * 36 + py * 14;
+                    const px = -u.y; const py = u.x;
+                    const lx = pt.x + u.x * (INDENT + 6) + px * 14;
+                    const ly = pt.y + u.y * (INDENT + 6) + py * 14;
                     return (
                       <g>
                         <rect x={lx - 7} y={ly - 7} width={14} height={14} rx={4}
@@ -744,40 +760,60 @@ export default function DrawioPreview() {
                     );
                   };
 
-                  const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
+                  // 3. Render
+                  return diamonds.map((d) => {
+                    const { edge, rel, x: dmX, y: dmY } = d;
+                    const label = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
+                    const cleanLabel = label.replace(/<div>/g, '\n').replace(/<\/div>/g, '');
+                    const lines = cleanLabel.split('\n');
+                    const diamondPoints = `${dmX},${dmY - 22.5} ${dmX + 60},${dmY} ${dmX},${dmY + 22.5} ${dmX - 60},${dmY}`;
 
-                  return (
-                    <g key={`overlay_${edge.id}`}>
-                      {/* Crow's foot markers OR text pill labels */}
-                      {relNotation === 'crowsfoot' ? (
-                        <>
-                          {renderOneTick(srcPt, srcPt2)}
-                          {rel.type === '1:1'
-                            ? renderOneTick(tgtPt, tgtPt2)
-                            : renderCrowsFoot(tgtPt, tgtPt2)}
-                        </>
-                      ) : (
-                        <>
-                          {renderLabelPill(srcPt, srcPt2, '1')}
-                          {renderLabelPill(tgtPt, tgtPt2, tgtLabel)}
-                        </>
-                      )}
+                    const srcPt = edge.points[0];
+                    const srcPt2 = edge.points[1] ?? srcPt;
+                    const tgtPt = edge.points[edge.points.length - 1];
+                    const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
 
-                      {/* Diamond relationship label — always on top */}
-                      <g className="cursor-pointer">
-                        <polygon points={diamondPoints} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
-                        {lines.length > 1 ? (
-                          <text x={midX} y={midY - 3} textAnchor="middle" fill="#2563eb" className="text-[8px] font-medium pointer-events-none">
-                            <tspan x={midX} dy="0">{lines[0]}</tspan>
-                            <tspan x={midX} dy="8">{lines[1].replace(/^\/\s*/, '/ ')}</tspan>
-                          </text>
+                    const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
+
+                    return (
+                      <g key={`overlay_${edge.id}`}>
+                        {/* Connector stubs from the line to the resolved diamond position */}
+                        <line x1={srcPt.x} y1={srcPt.y} x2={dmX} y2={dmY}
+                          stroke="#2563eb" strokeWidth={0.8} strokeDasharray="3,3" opacity={0.35} />
+                        <line x1={tgtPt.x} y1={tgtPt.y} x2={dmX} y2={dmY}
+                          stroke="#2563eb" strokeWidth={0.8} strokeDasharray="3,3" opacity={0.35} />
+
+                        {/* Crow's foot / label markers */}
+                        {relNotation === 'crowsfoot' ? (
+                          <>
+                            {renderOneTick(srcPt, srcPt2)}
+                            {rel.type === '1:1'
+                              ? renderOneTick(tgtPt, tgtPt2)
+                              : renderCrowsFoot(tgtPt, tgtPt2)}
+                          </>
                         ) : (
-                          <text x={midX} y={midY + 3} textAnchor="middle" fill="#2563eb" className="text-[9px] font-medium pointer-events-none">{lines[0]}</text>
+                          <>
+                            {renderLabelPill(srcPt, srcPt2, '1')}
+                            {renderLabelPill(tgtPt, tgtPt2, tgtLabel)}
+                          </>
                         )}
+
+                        {/* Diamond label */}
+                        <g className="cursor-pointer">
+                          <polygon points={diamondPoints} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
+                          {lines.length > 1 ? (
+                            <text x={dmX} y={dmY - 3} textAnchor="middle" fill="#2563eb" className="text-[8px] font-medium pointer-events-none">
+                              <tspan x={dmX} dy="0">{lines[0]}</tspan>
+                              <tspan x={dmX} dy="8">{lines[1].replace(/^\/\s*/, '/ ')}</tspan>
+                            </text>
+                          ) : (
+                            <text x={dmX} y={dmY + 3} textAnchor="middle" fill="#2563eb" className="text-[9px] font-medium pointer-events-none">{lines[0]}</text>
+                          )}
+                        </g>
                       </g>
-                    </g>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </>
             )}
 
