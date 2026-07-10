@@ -762,15 +762,12 @@ export default function DrawioPreview() {
                               );
                             })() : (() => {
                               const u = uv(tgtBorder, tgtPt2), px = -u.y, py = u.x;
-                              const near = { x: tgtBorder.x + u.x*8, y: tgtBorder.y + u.y*8 };
-                              const far = { x: tgtBorder.x + u.x*13, y: tgtBorder.y + u.y*13 };
-                              const ox = tgtBorder.x + u.x*2, oy = tgtBorder.y + u.y*2;
+                              const far = { x: tgtBorder.x + u.x * 12, y: tgtBorder.y + u.y * 12 };
                               return (
                                 <g>
-                                  <line x1={ox} y1={oy} x2={far.x+px*5} y2={far.y+py*5} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                  <line x1={ox} y1={oy} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                  <line x1={ox} y1={oy} x2={far.x-px*5} y2={far.y-py*5} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                  <line x1={near.x+px*5} y1={near.y+py*5} x2={near.x-px*5} y2={near.y-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                                  <line x1={tgtBorder.x + px * 5} y1={tgtBorder.y + py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                  <line x1={tgtBorder.x} y1={tgtBorder.y} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                  <line x1={tgtBorder.x - px * 5} y1={tgtBorder.y - py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
                                 </g>
                               );
                             })()}
