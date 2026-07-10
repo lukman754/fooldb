@@ -60,8 +60,6 @@ export function generateDrawioXml(
   xml += '        <mxCell id="0" />\n';
   xml += '        <mxCell id="1" parent="0" />\n';
 
-
-
   // 1. Generate Entity Tables (Rounded Rectangles) & Attributes (Ellipses Orbiting)
   for (const node of layoutData.nodes) {
     const table = node.table;
@@ -141,18 +139,100 @@ export function generateDrawioXml(
     }
   }
 
-  // 2. Generate Relationships (Edges connecting Tables & Diamonds placed at midpoints)
-  for (const edge of layoutData.edges) {
-    const rel = edge.relationship;
+  // ──── Pre-compute diamond positions for ALL edges ────
+  const polyLength = (pts: { x: number; y: number }[]) => {
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i].x - pts[i - 1].x;
+      const dy = pts[i].y - pts[i - 1].y;
+      total += Math.sqrt(dx * dx + dy * dy);
+    }
+    return total;
+  };
+
+  const pointAtT = (pts: { x: number; y: number }[], t: number) => {
+    const totalLen = polyLength(pts);
+    let target = Math.max(0, Math.min(1, t)) * totalLen;
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i].x - pts[i - 1].x;
+      const dy = pts[i].y - pts[i - 1].y;
+      const segLen = Math.sqrt(dx * dx + dy * dy);
+      if (target <= segLen || i === pts.length - 1) {
+        const frac = segLen > 0 ? target / segLen : 0;
+        return { x: pts[i - 1].x + dx * frac, y: pts[i - 1].y + dy * frac };
+      }
+      target -= segLen;
+    }
+    return pts[pts.length - 1];
+  };
+
+  const diamonds = layoutData.edges.map((edge) => {
+    return { edge, rel: edge.relationship, t: 0.5, x: 0, y: 0, width: 120, height: 45 };
+  });
+
+  diamonds.forEach((d) => {
+    const pt = pointAtT(d.edge.points, d.t);
+    d.x = pt.x;
+    d.y = pt.y;
+  });
+
+  // Resolve diamond collisions
+  for (let iter = 0; iter < 30; iter++) {
+    let moved = false;
+    for (let i = 0; i < diamonds.length; i++) {
+      for (let j = i + 1; j < diamonds.length; j++) {
+        const a = diamonds[i];
+        const b = diamonds[j];
+        const dx = Math.abs(a.x - b.x);
+        const dy = Math.abs(a.y - b.y);
+        const minX = (a.width + b.width) / 2 + 4;
+        const minY = (a.height + b.height) / 2 + 4;
+        if (dx < minX && dy < minY) {
+          moved = true;
+          a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
+          b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
+          const ptA = pointAtT(a.edge.points, a.t);
+          const ptB = pointAtT(b.edge.points, b.t);
+          a.x = ptA.x; a.y = ptA.y;
+          b.x = ptB.x; b.y = ptB.y;
+        }
+      }
+    }
+    if (!moved) break;
+  }
+
+  // 2. Generate Relationships (Edges connecting Tables & Diamonds)
+  for (const d of diamonds) {
+    const edge = d.edge;
+    const rel = d.rel;
     const edgeId = `edge_rel_${rel.id}`;
     const diamondId = `diamond_${rel.id}`;
-
     const sourceTableId = `table_${rel.sourceTable}`;
     const targetTableId = `table_${rel.targetTable}`;
 
+    const pts = edge.points;
+    const len = pts.length;
+    
+    // Find segment containing the diamond
+    const totalDist = d.t * polyLength(pts);
+    let currentDist = 0;
+    let diamondSegIdx = 1;
+    for (let i = 1; i < len; i++) {
+      const dx = pts[i].x - pts[i - 1].x;
+      const dy = pts[i].y - pts[i - 1].y;
+      const segLen = Math.sqrt(dx * dx + dy * dy);
+      if (currentDist + segLen >= totalDist) {
+        diamondSegIdx = i;
+        break;
+      }
+      currentDist += segLen;
+    }
+
+    const edge1Pts = pts.slice(1, diamondSegIdx);
+    const edge2Pts = pts.slice(diamondSegIdx, -1);
+
     if (relNotation === 'label') {
-      // Plain line with no arrowheads, labels added as child cells
-      const edgeStyleLabel = [
+      const edge1Style = [
         'edgeStyle=orthogonalEdgeStyle',
         'rounded=0',
         'orthogonalLoop=1',
@@ -164,15 +244,27 @@ export function generateDrawioXml(
         'strokeWidth=1.5'
       ].join(';');
 
-      // Determine src/tgt labels
+      const edge2Style = [
+        'edgeStyle=orthogonalEdgeStyle',
+        'rounded=0',
+        'orthogonalLoop=1',
+        'jettySize=auto',
+        'html=1',
+        'endArrow=none',
+        'startArrow=none',
+        'strokeColor=#6366f1',
+        'strokeWidth=1.5'
+      ].join(';');
+
       const srcLabel = '1';
       const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
 
-      xml += `        <mxCell id="${edgeId}" edge="1" parent="1" source="${sourceTableId}" style="${edgeStyleLabel}" target="${targetTableId}">\n`;
+      // Edge 1: Table A -> Diamond
+      xml += `        <mxCell id="${edgeId}_1" edge="1" parent="1" source="${sourceTableId}" style="${edge1Style}" target="${diamondId}">\n`;
       xml += '          <mxGeometry relative="1" as="geometry">\n';
-      if (edge.points.length > 0) {
+      if (edge1Pts.length > 0) {
         xml += '            <Array as="points">\n';
-        for (const pt of edge.points.slice(1, -1)) {
+        for (const pt of edge1Pts) {
           xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
         }
         xml += '            </Array>\n';
@@ -180,39 +272,76 @@ export function generateDrawioXml(
       xml += '          </mxGeometry>\n';
       xml += '        </mxCell>\n';
 
-      // Source label child cell ("1", aligned left/start)
-      xml += `        <mxCell id="${edgeId}_src" value="${escapeXml(srcLabel)}" connectable="0" parent="${edgeId}" style="resizable=0;html=1;whiteSpace=wrap;align=left;verticalAlign=bottom;" vertex="1">\n`;
+      // Edge 2: Diamond -> Table B
+      xml += `        <mxCell id="${edgeId}_2" edge="1" parent="1" source="${diamondId}" style="${edge2Style}" target="${targetTableId}">\n`;
+      xml += '          <mxGeometry relative="1" as="geometry">\n';
+      if (edge2Pts.length > 0) {
+        xml += '            <Array as="points">\n';
+        for (const pt of edge2Pts) {
+          xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
+        }
+        xml += '            </Array>\n';
+      }
+      xml += '          </mxGeometry>\n';
+      xml += '        </mxCell>\n';
+
+      // Source label child cell parented to Edge 1 (x="-1" near Table A)
+      xml += `        <mxCell id="${edgeId}_src" value="${escapeXml(srcLabel)}" connectable="0" parent="${edgeId}_1" style="resizable=0;html=1;whiteSpace=wrap;align=left;verticalAlign=bottom;" vertex="1">\n`;
       xml += '          <mxGeometry relative="1" x="-1" as="geometry"/>\n';
       xml += '        </mxCell>\n';
 
-      // Target label child cell ("N" or "1", aligned right/end)
-      xml += `        <mxCell id="${edgeId}_tgt" value="${escapeXml(tgtLabel)}" connectable="0" parent="${edgeId}" style="resizable=0;html=1;whiteSpace=wrap;align=right;verticalAlign=bottom;" vertex="1">\n`;
+      // Target label child cell parented to Edge 2 (x="1" near Table B)
+      xml += `        <mxCell id="${edgeId}_tgt" value="${escapeXml(tgtLabel)}" connectable="0" parent="${edgeId}_2" style="resizable=0;html=1;whiteSpace=wrap;align=right;verticalAlign=bottom;" vertex="1">\n`;
       xml += '          <mxGeometry relative="1" x="1" as="geometry"/>\n';
       xml += '        </mxCell>\n';
     } else {
       // Crow's foot notation
-      const startArrow = 'ERone';
-      const endArrow = rel.type === '1:1' ? 'ERone' : 'ERmany';
-
-      const edgeStyle = [
+      const edge1Style = [
         'edgeStyle=orthogonalEdgeStyle',
         'rounded=0',
         'orthogonalLoop=1',
         'jettySize=auto',
         'html=1',
-        `startArrow=${startArrow}`,
+        'startArrow=ERone',
         'startFill=0',
+        'endArrow=none',
+        'strokeColor=#6366f1',
+        'strokeWidth=1.5'
+      ].join(';');
+
+      const endArrow = rel.type === '1:1' ? 'ERone' : 'ERmany';
+      const edge2Style = [
+        'edgeStyle=orthogonalEdgeStyle',
+        'rounded=0',
+        'orthogonalLoop=1',
+        'jettySize=auto',
+        'html=1',
+        'startArrow=none',
         `endArrow=${endArrow}`,
         'endFill=0',
         'strokeColor=#6366f1',
         'strokeWidth=1.5'
       ].join(';');
 
-      xml += `        <mxCell id="${edgeId}" edge="1" parent="1" source="${sourceTableId}" style="${edgeStyle}" target="${targetTableId}">\n`;
+      // Edge 1: Table A -> Diamond
+      xml += `        <mxCell id="${edgeId}_1" edge="1" parent="1" source="${sourceTableId}" style="${edge1Style}" target="${diamondId}">\n`;
       xml += '          <mxGeometry relative="1" as="geometry">\n';
-      if (edge.points.length > 0) {
+      if (edge1Pts.length > 0) {
         xml += '            <Array as="points">\n';
-        for (const pt of edge.points.slice(1, -1)) {
+        for (const pt of edge1Pts) {
+          xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
+        }
+        xml += '            </Array>\n';
+      }
+      xml += '          </mxGeometry>\n';
+      xml += '        </mxCell>\n';
+
+      // Edge 2: Diamond -> Table B
+      xml += `        <mxCell id="${edgeId}_2" edge="1" parent="1" source="${diamondId}" style="${edge2Style}" target="${targetTableId}">\n`;
+      xml += '          <mxGeometry relative="1" as="geometry">\n';
+      if (edge2Pts.length > 0) {
+        xml += '            <Array as="points">\n';
+        for (const pt of edge2Pts) {
           xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
         }
         xml += '            </Array>\n';
@@ -222,38 +351,13 @@ export function generateDrawioXml(
     }
 
     // 3. Generate Diamond Relationship Labels (Placed at edge midpoint)
-    let midX = 0;
-    let midY = 0;
-
-    if (edge.points.length >= 2) {
-      const len = edge.points.length;
-      if (len % 2 === 0) {
-        const idx1 = len / 2 - 1;
-        const idx2 = len / 2;
-        midX = (edge.points[idx1].x + edge.points[idx2].x) / 2;
-        midY = (edge.points[idx1].y + edge.points[idx2].y) / 2;
-      } else {
-        const idx = Math.floor(len / 2);
-        midX = edge.points[idx].x;
-        midY = edge.points[idx].y;
-      }
-    } else {
-      // Fallback midpoint between nodes
-      const sourceNode = layoutData.nodes.find(n => n.id === rel.sourceTable);
-      const targetNode = layoutData.nodes.find(n => n.id === rel.targetTable);
-      if (sourceNode && targetNode) {
-        midX = (sourceNode.x + targetNode.x) / 2;
-        midY = (sourceNode.y + targetNode.y) / 2;
-      }
-    }
-
     const relLabel = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
     const escapedRelLabel = escapeXml(relLabel);
 
     const diamondWidth = 120;
     const diamondHeight = 60;
-    const dx = midX - diamondWidth / 2;
-    const dy = midY - diamondHeight / 2;
+    const dx = d.x - diamondWidth / 2;
+    const dy = d.y - diamondHeight / 2;
 
     const diamondStyle = 'shape=rhombus;perimeter=rhombusPerimeter;whiteSpace=wrap;html=1;align=center;fillColor=#0f172a;strokeColor=#6366f1;fontColor=#a5b4fc;strokeWidth=1.5;fontSize=10;';
 
