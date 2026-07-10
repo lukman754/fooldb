@@ -518,8 +518,6 @@ export default function DrawioPreview() {
               <marker id="activity-arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
                 <path d="M 0 1.5 L 10 5 L 0 8.5 Z" fill="#6366f1" />
               </marker>
-
-              {/* UML Sequence Arrow */}
               <marker id="sequence-arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
                 <path d="M 0 1.5 L 10 5 L 0 8.5 Z" fill="#6366f1" />
               </marker>
@@ -528,129 +526,30 @@ export default function DrawioPreview() {
             {/* A. RENDER MODE: CHEN ERD */}
             {mode === 'erd' && layout && (
               <>
-                {/* 1. Draw Relationships (Edges & Midpoint Diamonds) */}
+                {/* LAYER 1: Relationship lines ONLY — drawn below entities */}
                 {layout.edges.map((edge) => {
-                  const rel = edge.relationship;
                   let pathD = '';
                   edge.points.forEach((pt, i) => {
                     pathD += `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y} `;
                   });
-
-                  // Midpoint calculation for diamond label
-                  let midX = 0, midY = 0;
-                  if (edge.points.length >= 2) {
-                    const len = edge.points.length;
-                    if (len % 2 === 0) {
-                      const idx1 = len / 2 - 1;
-                      const idx2 = len / 2;
-                      midX = (edge.points[idx1].x + edge.points[idx2].x) / 2;
-                      midY = (edge.points[idx1].y + edge.points[idx2].y) / 2;
-                    } else {
-                      const idx = Math.floor(len / 2);
-                      const pt = edge.points[idx];
-                      midX = pt.x;
-                      midY = pt.y;
-                    }
-                  } else {
-                    const sourceNode = layout.nodes.find(n => n.id === rel.sourceTable);
-                    const targetNode = layout.nodes.find(n => n.id === rel.targetTable);
-                    if (sourceNode && targetNode) {
-                      midX = (sourceNode.x + targetNode.x) / 2;
-                      midY = (sourceNode.y + targetNode.y) / 2;
-                    }
-                  }
-
-                  const label = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
-                  const cleanLabel = label.replace(/<div>/g, '\n').replace(/<\/div>/g, '');
-                  const lines = cleanLabel.split('\n');
-                  const diamondPoints = `${midX},${midY - 22.5} ${midX + 60},${midY} ${midX},${midY + 22.5} ${midX - 60},${midY}`;
-
-                  // Compute end-of-line label positions for label notation
-                  const srcPt  = edge.points[0];
-                  const srcPt2 = edge.points[1] ?? edge.points[0];
-                  const tgtPt  = edge.points[edge.points.length - 1];
-                  const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
-
-                  // Offset text slightly inward from endpoint along line direction
-                  const srcDx = srcPt2.x - srcPt.x;
-                  const srcDy = srcPt2.y - srcPt.y;
-                  const srcLen = Math.sqrt(srcDx * srcDx + srcDy * srcDy) || 1;
-                  const srcLabelX = srcPt.x + (srcDx / srcLen) * 22;
-                  const srcLabelY = srcPt.y + (srcDy / srcLen) * 22;
-
-                  const tgtDx = tgtPt2.x - tgtPt.x;
-                  const tgtDy = tgtPt2.y - tgtPt.y;
-                  const tgtLen = Math.sqrt(tgtDx * tgtDx + tgtDy * tgtDy) || 1;
-                  const tgtLabelX = tgtPt.x + (tgtDx / tgtLen) * 22;
-                  const tgtLabelY = tgtPt.y + (tgtDy / tgtLen) * 22;
-
-                  // Determine labels: source always "1", target depends on type
-                  const srcLabel = '1';
-                  const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
-
                   return (
-                    <g key={edge.id} className="group">
-                      {relNotation === 'crowsfoot' ? (
-                        <path
-                          d={pathD}
-                          fill="none"
-                          stroke="#2563eb"
-                          strokeWidth={1.5}
-                          markerStart="url(#one-marker)"
-                          markerEnd={rel.type === '1:1' ? 'url(#one-one-marker)' : 'url(#many-marker)'}
-                        />
-                      ) : (
-                        <>
-                          <path d={pathD} fill="none" stroke="#2563eb" strokeWidth={1.5} />
-                          {/* Source label (always "1") */}
-                          <text
-                            x={srcLabelX}
-                            y={srcLabelY}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            fill="#6366f1"
-                            className="text-[11px] font-bold pointer-events-none"
-                            style={{ fontFamily: 'monospace' }}
-                          >
-                            {srcLabel}
-                          </text>
-                          {/* Target label (N or 1) */}
-                          <text
-                            x={tgtLabelX}
-                            y={tgtLabelY}
-                            textAnchor="middle"
-                            dominantBaseline="middle"
-                            fill="#6366f1"
-                            className="text-[11px] font-bold pointer-events-none"
-                            style={{ fontFamily: 'monospace' }}
-                          >
-                            {tgtLabel}
-                          </text>
-                        </>
-                      )}
-                      <g className="cursor-pointer">
-                        <polygon points={diamondPoints} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
-                        {lines.length > 1 ? (
-                          <text x={midX} y={midY - 3} textAnchor="middle" fill="#2563eb" className="text-[8px] font-medium pointer-events-none">
-                            <tspan x={midX} dy="0">{lines[0]}</tspan>
-                            <tspan x={midX} dy="8">{lines[1].replace(/^\/\s*/, '/ ')}</tspan>
-                          </text>
-                        ) : (
-                          <text x={midX} y={midY + 3} textAnchor="middle" fill="#2563eb" className="text-[9px] font-medium pointer-events-none">{lines[0]}</text>
-                        )}
-                      </g>
-                    </g>
+                    <path
+                      key={`line_${edge.id}`}
+                      d={pathD}
+                      fill="none"
+                      stroke="#2563eb"
+                      strokeWidth={1.5}
+                    />
                   );
                 })}
 
-                {/* 2. Draw Table Entities and Orbiting Attributes */}
+                {/* LAYER 2: Entity boxes + orbiting attributes */}
                 {layout.nodes.map((node) => {
                   const table = node.table;
                   const cx = node.x + node.width / 2;
                   const cy = node.y + node.height / 2;
                   const N = table.columns.length;
 
-                  // 1. Build initial list of attribute positions
                   const attrs = table.columns.map((col, idx) => {
                     const key = `${table.name}-${col.name}`;
                     const defaultAngle = (2 * Math.PI * idx) / N;
@@ -658,23 +557,16 @@ export default function DrawioPreview() {
                     const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
                     const w_attr = Math.max(60, col.name.length * 8 + 16);
                     const h_attr = 30;
-
                     return {
-                      col,
-                      key,
-                      width: w_attr,
-                      height: h_attr,
-                      angle: pos.angle,
-                      radius: pos.radius,
+                      col, key, width: w_attr, height: h_attr,
+                      angle: pos.angle, radius: pos.radius,
                       x: cx + pos.radius * Math.cos(pos.angle),
                       y: cy + pos.radius * Math.sin(pos.angle)
                     };
                   });
 
-                  // 2. Resolve collisions so they don't overlap
                   resolveCollisions(attrs, cx, cy);
 
-                  // Find if any attribute of this table is selected
                   const selectedAttrInTable = selectedAttr && selectedAttr.tableName === table.name
                     ? attrs.find(a => a.col.name === selectedAttr.colName)
                     : null;
@@ -683,46 +575,27 @@ export default function DrawioPreview() {
                     <g key={node.id}>
                       {/* Dashboard helper circle for orbit radius if selected */}
                       {selectedAttrInTable && (
-                        <circle
-                          cx={cx}
-                          cy={cy}
-                          r={selectedAttrInTable.radius}
-                          fill="none"
-                          stroke="#2563eb"
-                          strokeWidth={1}
-                          strokeDasharray="4,4"
-                          opacity={0.4}
-                        />
+                        <circle cx={cx} cy={cy} r={selectedAttrInTable.radius}
+                          fill="none" stroke="#2563eb" strokeWidth={1}
+                          strokeDasharray="4,4" opacity={0.4} />
                       )}
 
                       {/* Connection lines from center to orbiting ellipses */}
                       {attrs.map((item) => (
                         <line
                           key={`line_${item.col.name}`}
-                          x1={cx}
-                          y1={cy}
-                          x2={item.x}
-                          y2={item.y}
+                          x1={cx} y1={cy} x2={item.x} y2={item.y}
                           stroke={
-                            selectedAttr &&
-                            selectedAttr.tableName === table.name &&
-                            selectedAttr.colName === item.col.name
-                              ? '#2563eb'
-                              : '#52525b'
+                            selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name
+                              ? '#2563eb' : '#52525b'
                           }
                           strokeWidth={
-                            selectedAttr &&
-                            selectedAttr.tableName === table.name &&
-                            selectedAttr.colName === item.col.name
-                              ? 1.5
-                              : 1
+                            selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name
+                              ? 1.5 : 1
                           }
                           strokeDasharray={
-                            selectedAttr &&
-                            selectedAttr.tableName === table.name &&
-                            selectedAttr.colName === item.col.name
-                              ? '2,2'
-                              : 'none'
+                            selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name
+                              ? '2,2' : 'none'
                           }
                         />
                       ))}
@@ -730,10 +603,7 @@ export default function DrawioPreview() {
                       {/* Attributes ellipses */}
                       {attrs.map((item) => {
                         const isSelected =
-                          selectedAttr &&
-                          selectedAttr.tableName === table.name &&
-                          selectedAttr.colName === item.col.name;
-
+                          selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name;
                         return (
                           <g
                             key={`attr_g_${item.col.name}`}
@@ -743,35 +613,21 @@ export default function DrawioPreview() {
                               setDraggingAttr({ tableName: table.name, colName: item.col.name });
                               setSelectedAttr({ tableName: table.name, colName: item.col.name });
                             }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                            }}
+                            onClick={(e) => { e.stopPropagation(); }}
                           >
                             <ellipse
-                              cx={item.x}
-                              cy={item.y}
-                              rx={item.width / 2}
-                              ry={item.height / 2}
+                              cx={item.x} cy={item.y}
+                              rx={item.width / 2} ry={item.height / 2}
                               fill={item.col.isPrimaryKey ? '#18181b' : '#09090b'}
-                              stroke={
-                                isSelected
-                                  ? '#fbbf24' // Yellow glowing outline for selected attribute
-                                  : item.col.isPrimaryKey
-                                  ? '#2563eb'
-                                  : '#52525b'
-                              }
+                              stroke={isSelected ? '#fbbf24' : item.col.isPrimaryKey ? '#2563eb' : '#52525b'}
                               strokeWidth={isSelected ? 2.5 : 1.5}
                               className="transition duration-150 group-hover:stroke-blue-400"
                             />
                             <text
-                              x={item.x}
-                              y={item.y + 3.5}
-                              textAnchor="middle"
+                              x={item.x} y={item.y + 3.5} textAnchor="middle"
                               fill={item.col.isPrimaryKey ? '#fa5454' : '#a1a1aa'}
                               textDecoration={item.col.isPrimaryKey ? 'underline' : 'none'}
-                              className={`text-[10px] ${
-                                item.col.isPrimaryKey ? 'italic font-medium' : 'font-normal'
-                              }`}
+                              className={`text-[10px] ${item.col.isPrimaryKey ? 'italic font-medium' : 'font-normal'}`}
                             >
                               {item.col.name}
                             </text>
@@ -781,13 +637,142 @@ export default function DrawioPreview() {
 
                       {/* Table Box */}
                       <g transform={`translate(${cx - 60}, ${cy - 22.5})`} className="cursor-pointer">
-                        <rect width={120} height={45} rx={6} fill="#18181b" stroke={table.isJunctionTable ? '#2563eb' : '#52525b'} strokeWidth={table.isJunctionTable ? 2 : 1.5} />
+                        <rect width={120} height={45} rx={6} fill="#18181b"
+                          stroke={table.isJunctionTable ? '#2563eb' : '#52525b'}
+                          strokeWidth={table.isJunctionTable ? 2 : 1.5} />
                         <text x={60} y={27.5} textAnchor="middle" fill="#fafafa" className="text-xs font-medium tracking-wide">{table.name}</text>
                         {table.isJunctionTable && (
                           <g transform="translate(35, -16)">
                             <rect width={50} height={12} rx={3} fill="#2563eb" />
                             <text x={25} y={8.5} textAnchor="middle" fill="#ffffff" className="text-[7px] font-medium uppercase tracking-wider">Junction</text>
                           </g>
+                        )}
+                      </g>
+                    </g>
+                  );
+                })}
+
+                {/* LAYER 3: Relationship overlays — crow's foot shapes / 1:N pill labels + diamond labels
+                    Rendered LAST so they always appear above entities and attributes */}
+                {layout.edges.map((edge) => {
+                  const rel = edge.relationship;
+
+                  // Midpoint for diamond
+                  let midX = 0, midY = 0;
+                  if (edge.points.length >= 2) {
+                    const len = edge.points.length;
+                    if (len % 2 === 0) {
+                      midX = (edge.points[len / 2 - 1].x + edge.points[len / 2].x) / 2;
+                      midY = (edge.points[len / 2 - 1].y + edge.points[len / 2].y) / 2;
+                    } else {
+                      midX = edge.points[Math.floor(len / 2)].x;
+                      midY = edge.points[Math.floor(len / 2)].y;
+                    }
+                  } else {
+                    const sn = layout.nodes.find(n => n.id === rel.sourceTable);
+                    const tn = layout.nodes.find(n => n.id === rel.targetTable);
+                    if (sn && tn) { midX = (sn.x + tn.x) / 2; midY = (sn.y + tn.y) / 2; }
+                  }
+
+                  const label = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
+                  const cleanLabel = label.replace(/<div>/g, '\n').replace(/<\/div>/g, '');
+                  const lines = cleanLabel.split('\n');
+                  const diamondPoints = `${midX},${midY - 22.5} ${midX + 60},${midY} ${midX},${midY + 22.5} ${midX - 60},${midY}`;
+
+                  // Endpoint vectors
+                  const srcPt = edge.points[0];
+                  const srcPt2 = edge.points[1] ?? srcPt;
+                  const tgtPt = edge.points[edge.points.length - 1];
+                  const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
+
+                  // Helper: direction unit vector FROM a TOWARD b
+                  const unitVec = (a: {x: number; y: number}, b: {x: number; y: number}) => {
+                    const dx = b.x - a.x;
+                    const dy = b.y - a.y;
+                    const l = Math.sqrt(dx * dx + dy * dy) || 1;
+                    return { x: dx / l, y: dy / l };
+                  };
+
+                  const INDENT = 28;
+
+                  // Helper: render "one" tick — perpendicular bar
+                  const renderOneTick = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
+                    const u = unitVec(pt, toward);
+                    const px = -u.y;
+                    const py = u.x;
+                    const bx = pt.x + u.x * INDENT;
+                    const by = pt.y + u.y * INDENT;
+                    return (
+                      <line x1={bx + px * 8} y1={by + py * 8} x2={bx - px * 8} y2={by - py * 8}
+                        stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                    );
+                  };
+
+                  // Helper: render crow's foot
+                  const renderCrowsFoot = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
+                    const u = unitVec(pt, toward);
+                    const px = -u.y;
+                    const py = u.x;
+                    const near = { x: pt.x + u.x * 10, y: pt.y + u.y * 10 };
+                    const far = { x: pt.x + u.x * INDENT, y: pt.y + u.y * INDENT };
+                    return (
+                      <g>
+                        <line x1={pt.x} y1={pt.y} x2={far.x + px * 9} y2={far.y + py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                        <line x1={pt.x} y1={pt.y} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                        <line x1={pt.x} y1={pt.y} x2={far.x - px * 9} y2={far.y - py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                        <line x1={near.x + px * 7} y1={near.y + py * 7} x2={near.x - px * 7} y2={near.y - py * 7} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                      </g>
+                    );
+                  };
+
+                  // Helper: render text label pill
+                  const renderLabelPill = (pt: {x: number; y: number}, toward: {x: number; y: number}, text: string) => {
+                    const u = unitVec(pt, toward);
+                    const px = -u.y;
+                    const py = u.x;
+                    const lx = pt.x + u.x * 36 + px * 14;
+                    const ly = pt.y + u.y * 36 + py * 14;
+                    return (
+                      <g>
+                        <rect x={lx - 7} y={ly - 7} width={14} height={14} rx={4}
+                          fill="#09090b" stroke="#6366f1" strokeWidth={1} />
+                        <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
+                          fill="#a5b4fc" className="pointer-events-none"
+                          style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700 }}
+                        >{text}</text>
+                      </g>
+                    );
+                  };
+
+                  const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
+
+                  return (
+                    <g key={`overlay_${edge.id}`}>
+                      {/* Crow's foot markers OR text pill labels */}
+                      {relNotation === 'crowsfoot' ? (
+                        <>
+                          {renderOneTick(srcPt, srcPt2)}
+                          {rel.type === '1:1'
+                            ? renderOneTick(tgtPt, tgtPt2)
+                            : renderCrowsFoot(tgtPt, tgtPt2)}
+                        </>
+                      ) : (
+                        <>
+                          {renderLabelPill(srcPt, srcPt2, '1')}
+                          {renderLabelPill(tgtPt, tgtPt2, tgtLabel)}
+                        </>
+                      )}
+
+                      {/* Diamond relationship label — always on top */}
+                      <g className="cursor-pointer">
+                        <polygon points={diamondPoints} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
+                        {lines.length > 1 ? (
+                          <text x={midX} y={midY - 3} textAnchor="middle" fill="#2563eb" className="text-[8px] font-medium pointer-events-none">
+                            <tspan x={midX} dy="0">{lines[0]}</tspan>
+                            <tspan x={midX} dy="8">{lines[1].replace(/^\/\s*/, '/ ')}</tspan>
+                          </text>
+                        ) : (
+                          <text x={midX} y={midY + 3} textAnchor="middle" fill="#2563eb" className="text-[9px] font-medium pointer-events-none">{lines[0]}</text>
                         )}
                       </g>
                     </g>
