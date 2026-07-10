@@ -3,7 +3,8 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { useDbStore } from '@/store/dbStore';
 import { getRelationshipLabel } from '@/lib/xml/drawioGenerator';
-import { ZoomIn, ZoomOut, Maximize2, RotateCcw, RefreshCw, Filter, Sparkles } from 'lucide-react';
+import { Column } from '@/types';
+import { ZoomIn, ZoomOut, Maximize2, RotateCcw, RefreshCw, Filter, Sparkles, Sliders } from 'lucide-react';
 
 export default function DrawioPreview() {
   const mode = useDbStore((state) => state.mode);
@@ -34,6 +35,27 @@ export default function DrawioPreview() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+
+  // Dragging and positioning states for attributes
+  const [draggingAttr, setDraggingAttr] = useState<{ tableName: string; colName: string } | null>(null);
+  const [selectedAttr, setSelectedAttr] = useState<{ tableName: string; colName: string } | null>(null);
+  const [attrPositions, setAttrPositions] = useState<{
+    [key: string]: { angle: number; radius: number };
+  }>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('fooldb_attr_positions');
+        return saved ? JSON.parse(saved) : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  });
+
+  useEffect(() => {
+    localStorage.setItem('fooldb_attr_positions', JSON.stringify(attrPositions));
+  }, [attrPositions]);
 
   // Reset view coordinates on mode changes
   useEffect(() => {
@@ -77,9 +99,33 @@ export default function DrawioPreview() {
     if (e.button !== 0) return; // Only left click drag pans
     setIsPanning(true);
     setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    setSelectedAttr(null); // Clear active attribute selection on canvas background click
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (draggingAttr) {
+      if (!containerRef.current || !layout) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const mouseX = (e.clientX - rect.left - pan.x) / zoom;
+      const mouseY = (e.clientY - rect.top - pan.y) / zoom;
+
+      const node = layout.nodes.find((n) => n.table.name === draggingAttr.tableName);
+      if (node) {
+        const cx = node.x + node.width / 2;
+        const cy = node.y + node.height / 2;
+        const dx = mouseX - cx;
+        const dy = mouseY - cy;
+        const radius = Math.max(50, Math.min(350, Math.sqrt(dx * dx + dy * dy)));
+        const angle = Math.atan2(dy, dx);
+
+        setAttrPositions((prev) => ({
+          ...prev,
+          [`${draggingAttr.tableName}-${draggingAttr.colName}`]: { angle, radius },
+        }));
+      }
+      return;
+    }
+
     if (!isPanning) return;
     setPan({
       x: e.clientX - panStart.x,
@@ -89,6 +135,7 @@ export default function DrawioPreview() {
 
   const handleMouseUp = () => {
     setIsPanning(false);
+    setDraggingAttr(null);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -299,6 +346,143 @@ export default function DrawioPreview() {
           </div>
         )}
 
+        {selectedAttr && (
+          <div className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-10 select-none">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+              <div className="flex items-center gap-1.5">
+                <Sliders className="h-4 w-4 text-blue-500" />
+                <h4 className="text-xs font-semibold text-zinc-200">Attribute Orbit & Radius</h4>
+              </div>
+              <button
+                onClick={() => setSelectedAttr(null)}
+                className="text-[10px] font-semibold text-zinc-500 hover:text-zinc-350 hover:underline"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[10px] text-zinc-500 font-mono">Table</div>
+              <div className="text-xs font-semibold text-zinc-200 truncate">{selectedAttr.tableName}</div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="text-[10px] text-zinc-500 font-mono">Attribute</div>
+              <div className="text-xs font-semibold text-blue-450 truncate">{selectedAttr.colName}</div>
+            </div>
+
+            {/* Sliders */}
+            {(() => {
+              const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+              const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+              if (!node) return null;
+              const N = node.table.columns.length;
+              const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+              const defaultAngle = (2 * Math.PI * idx) / N;
+              const defaultRadius = 85 + N * 5;
+
+              const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
+
+              // Convert angle from radians to degrees [0, 360]
+              let deg = Math.round((pos.angle * 180) / Math.PI);
+              if (deg < 0) deg += 360;
+
+              const radiusVal = Math.round(pos.radius);
+
+              return (
+                <div className="space-y-4 pt-2 border-t border-zinc-800">
+                  {/* Orbit Angle Slider */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px] font-medium">
+                      <span className="text-zinc-400">Orbit Angle</span>
+                      <span className="text-blue-500 font-mono">{deg}°</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      value={deg}
+                      onChange={(e) => {
+                        const newDeg = parseInt(e.target.value, 10);
+                        const rad = (newDeg * Math.PI) / 180;
+                        setAttrPositions((prev) => ({
+                          ...prev,
+                          [key]: { ...pos, angle: rad },
+                        }));
+                      }}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Radius Distance Slider */}
+                  <div className="space-y-1.5">
+                    <div className="flex justify-between text-[10px] font-medium">
+                      <span className="text-zinc-400">Orbit Radius</span>
+                      <span className="text-blue-500 font-mono">{radiusVal}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="350"
+                      value={radiusVal}
+                      onChange={(e) => {
+                        const newRad = parseInt(e.target.value, 10);
+                        setAttrPositions((prev) => ({
+                          ...prev,
+                          [key]: { ...pos, radius: newRad },
+                        }));
+                      }}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-col gap-2 pt-2 border-t border-zinc-800">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setAttrPositions((prev) => {
+                            const updated = { ...prev };
+                            delete updated[key];
+                            return updated;
+                          });
+                        }}
+                        className="flex-1 py-1.5 text-center text-[10px] font-semibold text-zinc-400 bg-zinc-950 border border-zinc-800 rounded hover:bg-zinc-850 hover:text-zinc-200 transition"
+                      >
+                        Reset Attribute
+                      </button>
+                      <button
+                        onClick={() => {
+                          setAttrPositions((prev) => {
+                            const updated = { ...prev };
+                            node.table.columns.forEach((c) => {
+                              delete updated[`${selectedAttr.tableName}-${c.name}`];
+                            });
+                            return updated;
+                          });
+                        }}
+                        className="flex-1 py-1.5 text-center text-[10px] font-semibold text-zinc-400 bg-zinc-950 border border-zinc-800 rounded hover:bg-zinc-850 hover:text-zinc-200 transition"
+                      >
+                        Reset Table
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (confirm('Reset all attribute positions in the diagram?')) {
+                          setAttrPositions({});
+                        }
+                      }}
+                      className="w-full py-1.5 text-center text-[10px] font-semibold text-red-400 bg-red-950/20 border border-red-900/30 rounded hover:bg-red-950/40 hover:text-red-300 transition"
+                    >
+                      Reset All Attributes
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {hasDiagramData ? (
           <svg
             id="fooldb-svg"
@@ -399,32 +583,132 @@ export default function DrawioPreview() {
                   const cx = node.x + node.width / 2;
                   const cy = node.y + node.height / 2;
                   const N = table.columns.length;
-                  const R = 85 + N * 5;
+
+                  // 1. Build initial list of attribute positions
+                  const attrs = table.columns.map((col, idx) => {
+                    const key = `${table.name}-${col.name}`;
+                    const defaultAngle = (2 * Math.PI * idx) / N;
+                    const defaultRadius = 85 + N * 5;
+                    const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
+                    const w_attr = Math.max(60, col.name.length * 8 + 16);
+                    const h_attr = 30;
+
+                    return {
+                      col,
+                      key,
+                      width: w_attr,
+                      height: h_attr,
+                      angle: pos.angle,
+                      radius: pos.radius,
+                      x: cx + pos.radius * Math.cos(pos.angle),
+                      y: cy + pos.radius * Math.sin(pos.angle)
+                    };
+                  });
+
+                  // 2. Resolve collisions so they don't overlap
+                  resolveCollisions(attrs, cx, cy);
+
+                  // Find if any attribute of this table is selected
+                  const selectedAttrInTable = selectedAttr && selectedAttr.tableName === table.name
+                    ? attrs.find(a => a.col.name === selectedAttr.colName)
+                    : null;
 
                   return (
                     <g key={node.id}>
+                      {/* Dashboard helper circle for orbit radius if selected */}
+                      {selectedAttrInTable && (
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={selectedAttrInTable.radius}
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth={1}
+                          strokeDasharray="4,4"
+                          opacity={0.4}
+                        />
+                      )}
+
                       {/* Connection lines from center to orbiting ellipses */}
-                      {table.columns.map((col, idx) => {
-                        const angle = (2 * Math.PI * idx) / N;
-                        const ax = cx + R * Math.cos(angle);
-                        const ay = cy + R * Math.sin(angle);
-                        return (
-                          <line key={`line_${col.name}`} x1={cx} y1={cy} x2={ax} y2={ay} stroke="#52525b" strokeWidth={1} />
-                        );
-                      })}
+                      {attrs.map((item) => (
+                        <line
+                          key={`line_${item.col.name}`}
+                          x1={cx}
+                          y1={cy}
+                          x2={item.x}
+                          y2={item.y}
+                          stroke={
+                            selectedAttr &&
+                            selectedAttr.tableName === table.name &&
+                            selectedAttr.colName === item.col.name
+                              ? '#2563eb'
+                              : '#52525b'
+                          }
+                          strokeWidth={
+                            selectedAttr &&
+                            selectedAttr.tableName === table.name &&
+                            selectedAttr.colName === item.col.name
+                              ? 1.5
+                              : 1
+                          }
+                          strokeDasharray={
+                            selectedAttr &&
+                            selectedAttr.tableName === table.name &&
+                            selectedAttr.colName === item.col.name
+                              ? '2,2'
+                              : 'none'
+                          }
+                        />
+                      ))}
 
                       {/* Attributes ellipses */}
-                      {table.columns.map((col, idx) => {
-                        const angle = (2 * Math.PI * idx) / N;
-                        const w_attr = Math.max(60, col.name.length * 8 + 16);
-                        const h_attr = 30;
-                        const ax = cx + R * Math.cos(angle) - w_attr / 2;
-                        const ay = cy + R * Math.sin(angle) - h_attr / 2;
+                      {attrs.map((item) => {
+                        const isSelected =
+                          selectedAttr &&
+                          selectedAttr.tableName === table.name &&
+                          selectedAttr.colName === item.col.name;
 
                         return (
-                          <g key={`attr_g_${col.name}`} className="transition duration-150" style={{ transformOrigin: `${ax + w_attr/2}px ${ay + h_attr/2}px` }}>
-                            <ellipse cx={ax + w_attr/2} cy={ay + h_attr/2} rx={w_attr/2} ry={h_attr/2} fill={col.isPrimaryKey ? '#18181b' : '#09090b'} stroke={col.isPrimaryKey ? '#2563eb' : '#52525b'} strokeWidth={1.5} />
-                            <text x={ax + w_attr/2} y={ay + h_attr/2 + 3.5} textAnchor="middle" fill={col.isPrimaryKey ? '#fa5454' : '#a1a1aa'} textDecoration={col.isPrimaryKey ? 'underline' : 'none'} className={`text-[10px] ${col.isPrimaryKey ? 'italic font-medium' : 'font-normal'}`}>{col.name}</text>
+                          <g
+                            key={`attr_g_${item.col.name}`}
+                            className="cursor-move group select-none origin-center"
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              setDraggingAttr({ tableName: table.name, colName: item.col.name });
+                              setSelectedAttr({ tableName: table.name, colName: item.col.name });
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                          >
+                            <ellipse
+                              cx={item.x}
+                              cy={item.y}
+                              rx={item.width / 2}
+                              ry={item.height / 2}
+                              fill={item.col.isPrimaryKey ? '#18181b' : '#09090b'}
+                              stroke={
+                                isSelected
+                                  ? '#fbbf24' // Yellow glowing outline for selected attribute
+                                  : item.col.isPrimaryKey
+                                  ? '#2563eb'
+                                  : '#52525b'
+                              }
+                              strokeWidth={isSelected ? 2.5 : 1.5}
+                              className="transition duration-150 group-hover:stroke-blue-400"
+                            />
+                            <text
+                              x={item.x}
+                              y={item.y + 3.5}
+                              textAnchor="middle"
+                              fill={item.col.isPrimaryKey ? '#fa5454' : '#a1a1aa'}
+                              textDecoration={item.col.isPrimaryKey ? 'underline' : 'none'}
+                              className={`text-[10px] ${
+                                item.col.isPrimaryKey ? 'italic font-medium' : 'font-normal'
+                              }`}
+                            >
+                              {item.col.name}
+                            </text>
                           </g>
                         );
                       })}
@@ -787,4 +1071,68 @@ export default function DrawioPreview() {
 function systemYBoundary(sysIdx: number, usecasesCount: number): number {
   const systemHeight = Math.max(320, usecasesCount * 90 + 80);
   return 60 + sysIdx * (systemHeight + 50);
+}
+
+interface AttrPosition {
+  col: Column;
+  key: string;
+  width: number;
+  height: number;
+  angle: number;
+  radius: number;
+  x: number;
+  y: number;
+}
+
+function resolveCollisions(attrs: AttrPosition[], cx: number, cy: number) {
+  const maxIterations = 25;
+  let changed = true;
+
+  for (let iter = 0; iter < maxIterations && changed; iter++) {
+    changed = false;
+    for (let i = 0; i < attrs.length; i++) {
+      for (let j = i + 1; j < attrs.length; j++) {
+        const a = attrs[i];
+        const b = attrs[j];
+
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const minXDist = (a.width + b.width) / 2 + 8;
+        const minYDist = (a.height + b.height) / 2 + 8;
+
+        const absDx = Math.abs(dx);
+        const absDy = Math.abs(dy);
+
+        if (absDx < minXDist && absDy < minYDist) {
+          changed = true;
+          const overlapX = minXDist - absDx;
+          const overlapY = minYDist - absDy;
+
+          let pushX = 0;
+          let pushY = 0;
+
+          if (overlapX < overlapY) {
+            pushX = overlapX * (dx >= 0 ? 0.52 : -0.52);
+          } else {
+            pushY = overlapY * (dy >= 0 ? 0.52 : -0.52);
+          }
+
+          a.x += pushX;
+          a.y += pushY;
+          b.x -= pushX;
+          b.y -= pushY;
+
+          const dxA = a.x - cx;
+          const dyA = a.y - cy;
+          a.radius = Math.max(50, Math.min(350, Math.sqrt(dxA * dxA + dyA * dyA)));
+          a.angle = Math.atan2(dyA, dxA);
+
+          const dxB = b.x - cx;
+          const dyB = b.y - cy;
+          b.radius = Math.max(50, Math.min(350, Math.sqrt(dxB * dxB + dyB * dyB)));
+          b.angle = Math.atan2(dyB, dxB);
+        }
+      }
+    }
+  }
 }
