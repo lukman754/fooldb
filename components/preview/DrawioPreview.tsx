@@ -653,52 +653,66 @@ export default function DrawioPreview() {
                 })}
 
                 {/* LAYER 3: Relationship overlays — crow's foot / 1:N labels + diamond labels
-                    Pre-compute all diamonds, resolve collisions, then render */}
+                    Diamonds stay ON their line; collisions slide them along the path */}
                 {(() => {
-                  // 1. Build diamond info for all edges
+                  // Helper: compute total polyline length and point at parameter t (0..1)
+                  const polylineLength = (pts: {x: number; y: number}[]) => {
+                    let total = 0;
+                    for (let i = 1; i < pts.length; i++) {
+                      const dx = pts[i].x - pts[i - 1].x;
+                      const dy = pts[i].y - pts[i - 1].y;
+                      total += Math.sqrt(dx * dx + dy * dy);
+                    }
+                    return total;
+                  };
+
+                  const pointAtT = (pts: {x: number; y: number}[], t: number) => {
+                    const totalLen = polylineLength(pts);
+                    let target = Math.max(0, Math.min(1, t)) * totalLen;
+                    for (let i = 1; i < pts.length; i++) {
+                      const dx = pts[i].x - pts[i - 1].x;
+                      const dy = pts[i].y - pts[i - 1].y;
+                      const segLen = Math.sqrt(dx * dx + dy * dy);
+                      if (target <= segLen || i === pts.length - 1) {
+                        const frac = segLen > 0 ? target / segLen : 0;
+                        return { x: pts[i - 1].x + dx * frac, y: pts[i - 1].y + dy * frac };
+                      }
+                      target -= segLen;
+                    }
+                    return pts[pts.length - 1];
+                  };
+
+                  // 1. Build diamond info with t parameter (start at 0.5 = midpoint)
                   const diamonds = layout.edges.map((edge) => {
                     const rel = edge.relationship;
-                    let midX = 0, midY = 0;
-                    if (edge.points.length >= 2) {
-                      const len = edge.points.length;
-                      if (len % 2 === 0) {
-                        midX = (edge.points[len / 2 - 1].x + edge.points[len / 2].x) / 2;
-                        midY = (edge.points[len / 2 - 1].y + edge.points[len / 2].y) / 2;
-                      } else {
-                        midX = edge.points[Math.floor(len / 2)].x;
-                        midY = edge.points[Math.floor(len / 2)].y;
-                      }
-                    } else {
-                      const sn = layout.nodes.find(n => n.id === rel.sourceTable);
-                      const tn = layout.nodes.find(n => n.id === rel.targetTable);
-                      if (sn && tn) { midX = (sn.x + tn.x) / 2; midY = (sn.y + tn.y) / 2; }
-                    }
-                    return { edge, rel, x: midX, y: midY, width: 120, height: 45 };
+                    return { edge, rel, t: 0.5, x: 0, y: 0, width: 120, height: 45 };
                   });
 
-                  // 2. Resolve diamond collisions (push apart if overlapping)
-                  const maxIter = 20;
-                  for (let iter = 0; iter < maxIter; iter++) {
+                  // Compute initial positions
+                  diamonds.forEach(d => {
+                    const pt = pointAtT(d.edge.points, d.t);
+                    d.x = pt.x; d.y = pt.y;
+                  });
+
+                  // 2. Resolve collisions by sliding t along each diamond's own path
+                  for (let iter = 0; iter < 30; iter++) {
                     let moved = false;
                     for (let i = 0; i < diamonds.length; i++) {
                       for (let j = i + 1; j < diamonds.length; j++) {
                         const a = diamonds[i];
                         const b = diamonds[j];
-                        const dx = a.x - b.x;
-                        const dy = a.y - b.y;
-                        const minX = (a.width + b.width) / 2 + 6;
-                        const minY = (a.height + b.height) / 2 + 6;
-                        if (Math.abs(dx) < minX && Math.abs(dy) < minY) {
+                        const dx = Math.abs(a.x - b.x);
+                        const dy = Math.abs(a.y - b.y);
+                        const minX = (a.width + b.width) / 2 + 4;
+                        const minY = (a.height + b.height) / 2 + 4;
+                        if (dx < minX && dy < minY) {
                           moved = true;
-                          const ox = minX - Math.abs(dx);
-                          const oy = minY - Math.abs(dy);
-                          if (ox < oy) {
-                            const push = ox * 0.52 * (dx >= 0 ? 1 : -1);
-                            a.x += push; b.x -= push;
-                          } else {
-                            const push = oy * 0.52 * (dy >= 0 ? 1 : -1);
-                            a.y += push; b.y -= push;
-                          }
+                          a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
+                          b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
+                          const ptA = pointAtT(a.edge.points, a.t);
+                          const ptB = pointAtT(b.edge.points, b.t);
+                          a.x = ptA.x; a.y = ptA.y;
+                          b.x = ptB.x; b.y = ptB.y;
                         }
                       }
                     }
@@ -712,10 +726,8 @@ export default function DrawioPreview() {
                     return { x: dx / l, y: dy / l };
                   };
 
-                  // INDENT for crow's foot / label — 10px further back from tip
                   const INDENT = 38;
 
-                  // Render "one" tick
                   const renderOneTick = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
                     const u = unitVec(pt, toward);
                     const px = -u.y; const py = u.x;
@@ -726,7 +738,6 @@ export default function DrawioPreview() {
                     );
                   };
 
-                  // Render crow's foot
                   const renderCrowsFoot = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
                     const u = unitVec(pt, toward);
                     const px = -u.y; const py = u.x;
@@ -742,7 +753,6 @@ export default function DrawioPreview() {
                     );
                   };
 
-                  // Render text label pill
                   const renderLabelPill = (pt: {x: number; y: number}, toward: {x: number; y: number}, text: string) => {
                     const u = unitVec(pt, toward);
                     const px = -u.y; const py = u.x;
@@ -777,12 +787,6 @@ export default function DrawioPreview() {
 
                     return (
                       <g key={`overlay_${edge.id}`}>
-                        {/* Connector stubs from the line to the resolved diamond position */}
-                        <line x1={srcPt.x} y1={srcPt.y} x2={dmX} y2={dmY}
-                          stroke="#2563eb" strokeWidth={0.8} strokeDasharray="3,3" opacity={0.35} />
-                        <line x1={tgtPt.x} y1={tgtPt.y} x2={dmX} y2={dmY}
-                          stroke="#2563eb" strokeWidth={0.8} strokeDasharray="3,3" opacity={0.35} />
-
                         {/* Crow's foot / label markers */}
                         {relNotation === 'crowsfoot' ? (
                           <>
@@ -798,7 +802,7 @@ export default function DrawioPreview() {
                           </>
                         )}
 
-                        {/* Diamond label */}
+                        {/* Diamond label — on the line */}
                         <g className="cursor-pointer">
                           <polygon points={diamondPoints} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
                           {lines.length > 1 ? (
