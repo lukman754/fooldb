@@ -524,287 +524,224 @@ export default function DrawioPreview() {
             </defs>
 
             {/* A. RENDER MODE: CHEN ERD */}
-            {mode === 'erd' && layout && (
-              <>
-                {/* LAYER 1: Relationship lines ONLY — drawn below entities */}
-                {layout.edges.map((edge) => {
-                  let pathD = '';
-                  edge.points.forEach((pt, i) => {
-                    pathD += `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y} `;
-                  });
-                  return (
-                    <path
-                      key={`line_${edge.id}`}
-                      d={pathD}
-                      fill="none"
-                      stroke="#2563eb"
-                      strokeWidth={1.5}
-                    />
-                  );
-                })}
-
-                {/* LAYER 2: Entity boxes + orbiting attributes */}
-                {layout.nodes.map((node) => {
-                  const table = node.table;
-                  const cx = node.x + node.width / 2;
-                  const cy = node.y + node.height / 2;
-                  const N = table.columns.length;
-
-                  const attrs = table.columns.map((col, idx) => {
-                    const key = `${table.name}-${col.name}`;
-                    const defaultAngle = (2 * Math.PI * idx) / N;
-                    const defaultRadius = 85 + N * 5;
-                    const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
-                    const w_attr = Math.max(60, col.name.length * 8 + 16);
-                    const h_attr = 30;
-                    return {
-                      col, key, width: w_attr, height: h_attr,
-                      angle: pos.angle, radius: pos.radius,
-                      x: cx + pos.radius * Math.cos(pos.angle),
-                      y: cy + pos.radius * Math.sin(pos.angle)
-                    };
-                  });
-
-                  resolveCollisions(attrs, cx, cy);
-
-                  const selectedAttrInTable = selectedAttr && selectedAttr.tableName === table.name
-                    ? attrs.find(a => a.col.name === selectedAttr.colName)
-                    : null;
-
-                  return (
-                    <g key={node.id}>
-                      {/* Dashboard helper circle for orbit radius if selected */}
-                      {selectedAttrInTable && (
-                        <circle cx={cx} cy={cy} r={selectedAttrInTable.radius}
-                          fill="none" stroke="#2563eb" strokeWidth={1}
-                          strokeDasharray="4,4" opacity={0.4} />
-                      )}
-
-                      {/* Connection lines from center to orbiting ellipses */}
-                      {attrs.map((item) => (
-                        <line
-                          key={`line_${item.col.name}`}
-                          x1={cx} y1={cy} x2={item.x} y2={item.y}
-                          stroke={
-                            selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name
-                              ? '#2563eb' : '#52525b'
-                          }
-                          strokeWidth={
-                            selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name
-                              ? 1.5 : 1
-                          }
-                          strokeDasharray={
-                            selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name
-                              ? '2,2' : 'none'
-                          }
-                        />
-                      ))}
-
-                      {/* Attributes ellipses */}
-                      {attrs.map((item) => {
-                        const isSelected =
-                          selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name;
-                        return (
-                          <g
-                            key={`attr_g_${item.col.name}`}
-                            className="cursor-move group select-none origin-center"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              setDraggingAttr({ tableName: table.name, colName: item.col.name });
-                              setSelectedAttr({ tableName: table.name, colName: item.col.name });
-                            }}
-                            onClick={(e) => { e.stopPropagation(); }}
-                          >
-                            <ellipse
-                              cx={item.x} cy={item.y}
-                              rx={item.width / 2} ry={item.height / 2}
-                              fill={item.col.isPrimaryKey ? '#18181b' : '#09090b'}
-                              stroke={isSelected ? '#fbbf24' : item.col.isPrimaryKey ? '#2563eb' : '#52525b'}
-                              strokeWidth={isSelected ? 2.5 : 1.5}
-                              className="transition duration-150 group-hover:stroke-blue-400"
-                            />
-                            <text
-                              x={item.x} y={item.y + 3.5} textAnchor="middle"
-                              fill={item.col.isPrimaryKey ? '#fa5454' : '#a1a1aa'}
-                              textDecoration={item.col.isPrimaryKey ? 'underline' : 'none'}
-                              className={`text-[10px] ${item.col.isPrimaryKey ? 'italic font-medium' : 'font-normal'}`}
-                            >
-                              {item.col.name}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {/* Table Box */}
-                      <g transform={`translate(${cx - 60}, ${cy - 22.5})`} className="cursor-pointer">
-                        <rect width={120} height={45} rx={6} fill="#18181b"
-                          stroke={table.isJunctionTable ? '#2563eb' : '#52525b'}
-                          strokeWidth={table.isJunctionTable ? 2 : 1.5} />
-                        <text x={60} y={27.5} textAnchor="middle" fill="#fafafa" className="text-xs font-medium tracking-wide">{table.name}</text>
-                        {table.isJunctionTable && (
-                          <g transform="translate(35, -16)">
-                            <rect width={50} height={12} rx={3} fill="#2563eb" />
-                            <text x={25} y={8.5} textAnchor="middle" fill="#ffffff" className="text-[7px] font-medium uppercase tracking-wider">Junction</text>
-                          </g>
-                        )}
-                      </g>
-                    </g>
-                  );
-                })}
-
-                {/* LAYER 3: Relationship overlays — crow's foot / 1:N labels + diamond labels
-                    Diamonds stay ON their line; collisions slide them along the path */}
-                {(() => {
-                  // Helper: compute total polyline length and point at parameter t (0..1)
-                  const polylineLength = (pts: {x: number; y: number}[]) => {
-                    let total = 0;
-                    for (let i = 1; i < pts.length; i++) {
-                      const dx = pts[i].x - pts[i - 1].x;
-                      const dy = pts[i].y - pts[i - 1].y;
-                      total += Math.sqrt(dx * dx + dy * dy);
-                    }
-                    return total;
-                  };
-
-                  const pointAtT = (pts: {x: number; y: number}[], t: number) => {
-                    const totalLen = polylineLength(pts);
-                    let target = Math.max(0, Math.min(1, t)) * totalLen;
-                    for (let i = 1; i < pts.length; i++) {
-                      const dx = pts[i].x - pts[i - 1].x;
-                      const dy = pts[i].y - pts[i - 1].y;
-                      const segLen = Math.sqrt(dx * dx + dy * dy);
-                      if (target <= segLen || i === pts.length - 1) {
-                        const frac = segLen > 0 ? target / segLen : 0;
-                        return { x: pts[i - 1].x + dx * frac, y: pts[i - 1].y + dy * frac };
-                      }
-                      target -= segLen;
-                    }
-                    return pts[pts.length - 1];
-                  };
-
-                  // 1. Build diamond info with t parameter (start at 0.5 = midpoint)
-                  const diamonds = layout.edges.map((edge) => {
-                    const rel = edge.relationship;
-                    return { edge, rel, t: 0.5, x: 0, y: 0, width: 120, height: 45 };
-                  });
-
-                  // Compute initial positions
-                  diamonds.forEach(d => {
-                    const pt = pointAtT(d.edge.points, d.t);
-                    d.x = pt.x; d.y = pt.y;
-                  });
-
-                  // 2. Resolve collisions by sliding t along each diamond's own path
-                  for (let iter = 0; iter < 30; iter++) {
-                    let moved = false;
-                    for (let i = 0; i < diamonds.length; i++) {
-                      for (let j = i + 1; j < diamonds.length; j++) {
-                        const a = diamonds[i];
-                        const b = diamonds[j];
-                        const dx = Math.abs(a.x - b.x);
-                        const dy = Math.abs(a.y - b.y);
-                        const minX = (a.width + b.width) / 2 + 4;
-                        const minY = (a.height + b.height) / 2 + 4;
-                        if (dx < minX && dy < minY) {
-                          moved = true;
-                          a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
-                          b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
-                          const ptA = pointAtT(a.edge.points, a.t);
-                          const ptB = pointAtT(b.edge.points, b.t);
-                          a.x = ptA.x; a.y = ptA.y;
-                          b.x = ptB.x; b.y = ptB.y;
-                        }
-                      }
-                    }
-                    if (!moved) break;
+            {mode === 'erd' && layout && (() => {
+              // ──── Pre-compute diamond positions for ALL edges ────
+              const polyLen = (pts: {x:number;y:number}[]) => {
+                let t = 0;
+                for (let i = 1; i < pts.length; i++) {
+                  const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
+                  t += Math.sqrt(dx*dx + dy*dy);
+                }
+                return t;
+              };
+              const ptAtT = (pts: {x:number;y:number}[], t: number) => {
+                const total = polyLen(pts);
+                let rem = Math.max(0, Math.min(1, t)) * total;
+                for (let i = 1; i < pts.length; i++) {
+                  const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
+                  const seg = Math.sqrt(dx*dx + dy*dy);
+                  if (rem <= seg || i === pts.length - 1) {
+                    const f = seg > 0 ? rem / seg : 0;
+                    return { x: pts[i-1].x + dx*f, y: pts[i-1].y + dy*f };
                   }
+                  rem -= seg;
+                }
+                return pts[pts.length - 1];
+              };
 
-                  // Helper: unit vector
-                  const unitVec = (a: {x: number; y: number}, b: {x: number; y: number}) => {
-                    const dx = b.x - a.x; const dy = b.y - a.y;
-                    const l = Math.sqrt(dx * dx + dy * dy) || 1;
-                    return { x: dx / l, y: dy / l };
-                  };
+              const diamonds = layout.edges.map(edge => ({
+                edge, rel: edge.relationship, t: 0.5, x: 0, y: 0, w: 120, h: 45
+              }));
+              diamonds.forEach(d => { const p = ptAtT(d.edge.points, d.t); d.x = p.x; d.y = p.y; });
 
-                  const INDENT = 38;
+              // Resolve diamond collisions by sliding along path
+              for (let iter = 0; iter < 30; iter++) {
+                let moved = false;
+                for (let i = 0; i < diamonds.length; i++) {
+                  for (let j = i + 1; j < diamonds.length; j++) {
+                    const a = diamonds[i], b = diamonds[j];
+                    if (Math.abs(a.x - b.x) < (a.w + b.w)/2 + 4 && Math.abs(a.y - b.y) < (a.h + b.h)/2 + 4) {
+                      moved = true;
+                      a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
+                      b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
+                      const pa = ptAtT(a.edge.points, a.t), pb = ptAtT(b.edge.points, b.t);
+                      a.x = pa.x; a.y = pa.y; b.x = pb.x; b.y = pb.y;
+                    }
+                  }
+                }
+                if (!moved) break;
+              }
 
-                  const renderOneTick = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
-                    const u = unitVec(pt, toward);
-                    const px = -u.y; const py = u.x;
-                    const bx = pt.x + u.x * INDENT; const by = pt.y + u.y * INDENT;
+              // Build a lookup: edgeId → diamond {x, y}
+              const diamondMap = new Map<string, {x: number; y: number}>();
+              diamonds.forEach(d => diamondMap.set(d.edge.id, { x: d.x, y: d.y }));
+
+              // Helper: unit vector
+              const uv = (a: {x:number;y:number}, b: {x:number;y:number}) => {
+                const dx = b.x - a.x, dy = b.y - a.y, l = Math.sqrt(dx*dx+dy*dy) || 1;
+                return { x: dx/l, y: dy/l };
+              };
+              const INDENT = 38;
+
+              return (
+                <>
+                  {/* LAYER 1: Lines split at diamond — Entity → Diamond → Entity */}
+                  {layout.edges.map(edge => {
+                    const dm = diamondMap.get(edge.id)!;
+                    const src = edge.points[0];
+                    const tgt = edge.points[edge.points.length - 1];
                     return (
-                      <line x1={bx + px * 8} y1={by + py * 8} x2={bx - px * 8} y2={by - py * 8}
-                        stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
-                    );
-                  };
-
-                  const renderCrowsFoot = (pt: {x: number; y: number}, toward: {x: number; y: number}) => {
-                    const u = unitVec(pt, toward);
-                    const px = -u.y; const py = u.x;
-                    const near = { x: pt.x + u.x * 18, y: pt.y + u.y * 18 };
-                    const far = { x: pt.x + u.x * INDENT, y: pt.y + u.y * INDENT };
-                    return (
-                      <g>
-                        <line x1={pt.x + u.x * 8} y1={pt.y + u.y * 8} x2={far.x + px * 9} y2={far.y + py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                        <line x1={pt.x + u.x * 8} y1={pt.y + u.y * 8} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                        <line x1={pt.x + u.x * 8} y1={pt.y + u.y * 8} x2={far.x - px * 9} y2={far.y - py * 9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                        <line x1={near.x + px * 7} y1={near.y + py * 7} x2={near.x - px * 7} y2={near.y - py * 7} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                      <g key={`lines_${edge.id}`}>
+                        <line x1={src.x} y1={src.y} x2={dm.x} y2={dm.y} stroke="#2563eb" strokeWidth={1.5} />
+                        <line x1={dm.x} y1={dm.y} x2={tgt.x} y2={tgt.y} stroke="#2563eb" strokeWidth={1.5} />
                       </g>
                     );
-                  };
+                  })}
 
-                  const renderLabelPill = (pt: {x: number; y: number}, toward: {x: number; y: number}, text: string) => {
-                    const u = unitVec(pt, toward);
-                    const px = -u.y; const py = u.x;
-                    const lx = pt.x + u.x * (INDENT + 6) + px * 14;
-                    const ly = pt.y + u.y * (INDENT + 6) + py * 14;
+                  {/* LAYER 2: Entity boxes + orbiting attributes */}
+                  {layout.nodes.map((node) => {
+                    const table = node.table;
+                    const cx = node.x + node.width / 2;
+                    const cy = node.y + node.height / 2;
+                    const N = table.columns.length;
+
+                    const attrs = table.columns.map((col, idx) => {
+                      const key = `${table.name}-${col.name}`;
+                      const defaultAngle = (2 * Math.PI * idx) / N;
+                      const defaultRadius = 85 + N * 5;
+                      const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
+                      const w_attr = Math.max(60, col.name.length * 8 + 16);
+                      const h_attr = 30;
+                      return {
+                        col, key, width: w_attr, height: h_attr,
+                        angle: pos.angle, radius: pos.radius,
+                        x: cx + pos.radius * Math.cos(pos.angle),
+                        y: cy + pos.radius * Math.sin(pos.angle)
+                      };
+                    });
+
+                    resolveCollisions(attrs, cx, cy);
+
+                    const selectedAttrInTable = selectedAttr && selectedAttr.tableName === table.name
+                      ? attrs.find(a => a.col.name === selectedAttr.colName) : null;
+
                     return (
-                      <g>
-                        <rect x={lx - 7} y={ly - 7} width={14} height={14} rx={4}
-                          fill="#09090b" stroke="#6366f1" strokeWidth={1} />
-                        <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle"
-                          fill="#a5b4fc" className="pointer-events-none"
-                          style={{ fontFamily: 'monospace', fontSize: '10px', fontWeight: 700 }}
-                        >{text}</text>
+                      <g key={node.id}>
+                        {selectedAttrInTable && (
+                          <circle cx={cx} cy={cy} r={selectedAttrInTable.radius}
+                            fill="none" stroke="#2563eb" strokeWidth={1}
+                            strokeDasharray="4,4" opacity={0.4} />
+                        )}
+
+                        {attrs.map((item) => (
+                          <line key={`line_${item.col.name}`}
+                            x1={cx} y1={cy} x2={item.x} y2={item.y}
+                            stroke={selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name ? '#2563eb' : '#52525b'}
+                            strokeWidth={selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name ? 1.5 : 1}
+                            strokeDasharray={selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name ? '2,2' : 'none'}
+                          />
+                        ))}
+
+                        {attrs.map((item) => {
+                          const isSelected = selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name;
+                          return (
+                            <g key={`attr_g_${item.col.name}`}
+                              className="cursor-move group select-none origin-center"
+                              onMouseDown={(e) => { e.stopPropagation(); setDraggingAttr({ tableName: table.name, colName: item.col.name }); setSelectedAttr({ tableName: table.name, colName: item.col.name }); }}
+                              onClick={(e) => { e.stopPropagation(); }}
+                            >
+                              <ellipse cx={item.x} cy={item.y} rx={item.width / 2} ry={item.height / 2}
+                                fill={item.col.isPrimaryKey ? '#18181b' : '#09090b'}
+                                stroke={isSelected ? '#fbbf24' : item.col.isPrimaryKey ? '#2563eb' : '#52525b'}
+                                strokeWidth={isSelected ? 2.5 : 1.5}
+                                className="transition duration-150 group-hover:stroke-blue-400" />
+                              <text x={item.x} y={item.y + 3.5} textAnchor="middle"
+                                fill={item.col.isPrimaryKey ? '#fa5454' : '#a1a1aa'}
+                                textDecoration={item.col.isPrimaryKey ? 'underline' : 'none'}
+                                className={`text-[10px] ${item.col.isPrimaryKey ? 'italic font-medium' : 'font-normal'}`}
+                              >{item.col.name}</text>
+                            </g>
+                          );
+                        })}
+
+                        <g transform={`translate(${cx - 60}, ${cy - 22.5})`} className="cursor-pointer">
+                          <rect width={120} height={45} rx={6} fill="#18181b"
+                            stroke={table.isJunctionTable ? '#2563eb' : '#52525b'}
+                            strokeWidth={table.isJunctionTable ? 2 : 1.5} />
+                          <text x={60} y={27.5} textAnchor="middle" fill="#fafafa" className="text-xs font-medium tracking-wide">{table.name}</text>
+                          {table.isJunctionTable && (
+                            <g transform="translate(35, -16)">
+                              <rect width={50} height={12} rx={3} fill="#2563eb" />
+                              <text x={25} y={8.5} textAnchor="middle" fill="#ffffff" className="text-[7px] font-medium uppercase tracking-wider">Junction</text>
+                            </g>
+                          )}
+                        </g>
                       </g>
                     );
-                  };
+                  })}
 
-                  // 3. Render
-                  return diamonds.map((d) => {
+                  {/* LAYER 3: Diamonds + crow's foot / labels — on top */}
+                  {diamonds.map((d) => {
                     const { edge, rel, x: dmX, y: dmY } = d;
                     const label = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
                     const cleanLabel = label.replace(/<div>/g, '\n').replace(/<\/div>/g, '');
                     const lines = cleanLabel.split('\n');
-                    const diamondPoints = `${dmX},${dmY - 22.5} ${dmX + 60},${dmY} ${dmX},${dmY + 22.5} ${dmX - 60},${dmY}`;
+                    const diamondPts = `${dmX},${dmY - 22.5} ${dmX + 60},${dmY} ${dmX},${dmY + 22.5} ${dmX - 60},${dmY}`;
 
                     const srcPt = edge.points[0];
                     const srcPt2 = edge.points[1] ?? srcPt;
                     const tgtPt = edge.points[edge.points.length - 1];
                     const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
-
                     const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
 
                     return (
                       <g key={`overlay_${edge.id}`}>
-                        {/* Crow's foot / label markers */}
                         {relNotation === 'crowsfoot' ? (
                           <>
-                            {renderOneTick(srcPt, srcPt2)}
-                            {rel.type === '1:1'
-                              ? renderOneTick(tgtPt, tgtPt2)
-                              : renderCrowsFoot(tgtPt, tgtPt2)}
+                            {(() => {
+                              const u = uv(srcPt, srcPt2), px = -u.y, py = u.x;
+                              const bx = srcPt.x + u.x * INDENT, by = srcPt.y + u.y * INDENT;
+                              return <line x1={bx+px*8} y1={by+py*8} x2={bx-px*8} y2={by-py*8} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
+                            })()}
+                            {rel.type === '1:1' ? (() => {
+                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
+                              const bx = tgtPt.x + u.x * INDENT, by = tgtPt.y + u.y * INDENT;
+                              return <line x1={bx+px*8} y1={by+py*8} x2={bx-px*8} y2={by-py*8} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
+                            })() : (() => {
+                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
+                              const near = { x: tgtPt.x + u.x*18, y: tgtPt.y + u.y*18 };
+                              const far = { x: tgtPt.x + u.x*INDENT, y: tgtPt.y + u.y*INDENT };
+                              const ox = tgtPt.x + u.x*8, oy = tgtPt.y + u.y*8;
+                              return (
+                                <g>
+                                  <line x1={ox} y1={oy} x2={far.x+px*9} y2={far.y+py*9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                  <line x1={ox} y1={oy} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                  <line x1={ox} y1={oy} x2={far.x-px*9} y2={far.y-py*9} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                  <line x1={near.x+px*7} y1={near.y+py*7} x2={near.x-px*7} y2={near.y-py*7} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />
+                                </g>
+                              );
+                            })()}
                           </>
                         ) : (
                           <>
-                            {renderLabelPill(srcPt, srcPt2, '1')}
-                            {renderLabelPill(tgtPt, tgtPt2, tgtLabel)}
+                            {(() => {
+                              const u = uv(srcPt, srcPt2), px = -u.y, py = u.x;
+                              const lx = srcPt.x + u.x*(INDENT+6) + px*14, ly = srcPt.y + u.y*(INDENT+6) + py*14;
+                              return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
+                                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>1</text></g>);
+                            })()}
+                            {(() => {
+                              const u = uv(tgtPt, tgtPt2), px = -u.y, py = u.x;
+                              const lx = tgtPt.x + u.x*(INDENT+6) + px*14, ly = tgtPt.y + u.y*(INDENT+6) + py*14;
+                              return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
+                                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>{tgtLabel}</text></g>);
+                            })()}
                           </>
                         )}
 
-                        {/* Diamond label — on the line */}
+                        {/* Diamond — connected to lines */}
                         <g className="cursor-pointer">
-                          <polygon points={diamondPoints} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
+                          <polygon points={diamondPts} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
                           {lines.length > 1 ? (
                             <text x={dmX} y={dmY - 3} textAnchor="middle" fill="#2563eb" className="text-[8px] font-medium pointer-events-none">
                               <tspan x={dmX} dy="0">{lines[0]}</tspan>
@@ -816,12 +753,11 @@ export default function DrawioPreview() {
                         </g>
                       </g>
                     );
-                  });
-                })()}
-              </>
-            )}
-
-            {/* B. RENDER MODE: LRS SCHEMA */}
+                  })}
+                </>
+              );
+            })()}
+             {/* B. RENDER MODE: LRS SCHEMA */}
             {(mode === 'lrs' || mode === 'transformation') && layout && (
               <>
                 {/* 1. Draw Connectors (Orthogonal lines) */}
