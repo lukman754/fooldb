@@ -63,13 +63,65 @@ function splitByCommaAtDepth0(text: string): string[] {
   return parts;
 }
 
-// Clean comments from SQL
+// Clean comments from SQL in a quote-aware manner to avoid stripping characters like # inside string literals
 export function cleanSqlComments(sql: string): string {
-  // Remove block comments /* ... */
-  let cleaned = sql.replace(/\/\*[\s\S]*?\*\//g, ' ');
-  // Remove single line comments starting with -- or #
-  cleaned = cleaned.replace(/(?:--|#).*$/gm, ' ');
-  return cleaned;
+  let result = '';
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let inBacktick = false;
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+    const nextChar = sql[i + 1] || '';
+
+    // Track quotes
+    if (char === "'" && (i === 0 || sql[i - 1] !== '\\')) {
+      if (!inDoubleQuote && !inBacktick) inSingleQuote = !inSingleQuote;
+    } else if (char === '"' && (i === 0 || sql[i - 1] !== '\\')) {
+      if (!inSingleQuote && !inBacktick) inDoubleQuote = !inDoubleQuote;
+    } else if (char === '`' && !inSingleQuote && !inDoubleQuote) {
+      inBacktick = !inBacktick;
+    }
+
+    if (!inSingleQuote && !inDoubleQuote && !inBacktick) {
+      // Check block comment /* ... */
+      if (char === '/' && nextChar === '*') {
+        i += 1; // skip '*'
+        while (i < sql.length - 1) {
+          if (sql[i] === '*' && sql[i + 1] === '/') {
+            i += 1; // skip '/'
+            break;
+          }
+          i++;
+        }
+        result += ' ';
+        continue;
+      }
+
+      // Check single line comment starting with --
+      if (char === '-' && nextChar === '-') {
+        // Skip until newline
+        while (i < sql.length && sql[i] !== '\n') {
+          i++;
+        }
+        result += '\n';
+        continue;
+      }
+
+      // Check single line comment starting with #
+      if (char === '#') {
+        // Skip until newline
+        while (i < sql.length && sql[i] !== '\n') {
+          i++;
+        }
+        result += '\n';
+        continue;
+      }
+    }
+
+    result += char;
+  }
+  return result;
 }
 
 // Split SQL into individual statements
