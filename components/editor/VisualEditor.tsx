@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useDbStore } from '@/store/dbStore';
 import { Column } from '@/types';
 import { visualSchemaToSql } from '@/lib/parser/visualToSql';
@@ -74,18 +74,31 @@ function ColumnRow({
   onRemove: () => void;
   isLocked: boolean;
 }) {
+  // Local state for the name input — avoids losing focus on every keystroke
+  const [localName, setLocalName] = useState(col.name);
+  // Sync if col.name changes externally (e.g. FK rename from store)
+  useEffect(() => { setLocalName(col.name); }, [col.name]);
+
+  const commitName = useCallback(() => {
+    const trimmed = localName.trim();
+    if (trimmed && trimmed !== col.name) onUpdate({ name: trimmed });
+    else setLocalName(col.name); // revert if empty
+  }, [localName, col.name, onUpdate]);
+
   return (
     <div className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-800/60 transition-colors">
-      {/* Name */}
+      {/* Name — local state, sync on blur/Enter */}
       <input
-        value={col.name}
-        onChange={(e) => onUpdate({ name: e.target.value })}
+        value={localName}
+        onChange={(e) => setLocalName(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.currentTarget.blur(); } }}
         disabled={isLocked}
         placeholder="col_name"
         className="flex-1 min-w-0 bg-transparent text-[11px] text-zinc-300 border-b border-transparent hover:border-zinc-600 focus:border-blue-500 outline-none py-0.5 disabled:cursor-not-allowed disabled:opacity-60 font-mono"
       />
 
-      {/* Type */}
+      {/* Type — instant update (click, no focus issue) */}
       <select
         value={col.type}
         onChange={(e) => onUpdate({ type: e.target.value })}
@@ -97,7 +110,7 @@ function ColumnRow({
         ))}
       </select>
 
-      {/* Toggles */}
+      {/* Toggles — instant update (click, no focus issue) */}
       <div className="flex items-center gap-1">
         {(['isPrimaryKey', 'isNullable', 'isUnique'] as const).map((flag) => {
           const labels = { isPrimaryKey: 'PK', isNullable: 'NN', isUnique: 'UQ' };

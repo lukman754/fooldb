@@ -16,6 +16,13 @@ import { generateRelationshipVerbs } from '@/lib/ai/geminiClient';
 
 export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual';
 
+// Debounce timer for visual layout — prevents spamming ELK.js on rapid store updates
+let visualLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleVisualLayout(fn: () => void, delay = 120) {
+  if (visualLayoutTimer !== null) clearTimeout(visualLayoutTimer);
+  visualLayoutTimer = setTimeout(() => { visualLayoutTimer = null; fn(); }, delay);
+}
+
 interface DbState {
   mode: AppMode;
   sqlCode: string;
@@ -228,7 +235,7 @@ export const useDbStore = create<DbState>((set, get) => {
       uniqueKeys: [],
     };
     set((state) => ({ visualSchema: { ...state.visualSchema, tables: [...state.visualSchema.tables, newTable] } }));
-    get().triggerVisualLayout();
+    scheduleVisualLayout(() => get().triggerVisualLayout());
   },
 
   removeVisualTable: (name) => {
@@ -240,7 +247,7 @@ export const useDbStore = create<DbState>((set, get) => {
         ),
       }
     }));
-    get().triggerVisualLayout();
+    scheduleVisualLayout(() => get().triggerVisualLayout());
   },
 
   renameVisualTable: (oldName, newName) => {
@@ -257,7 +264,7 @@ export const useDbStore = create<DbState>((set, get) => {
         })),
       }
     }));
-    get().triggerVisualLayout();
+    scheduleVisualLayout(() => get().triggerVisualLayout());
   },
 
   addVisualColumn: (tableName, column) => {
@@ -275,7 +282,7 @@ export const useDbStore = create<DbState>((set, get) => {
         ),
       }
     }));
-    get().triggerVisualLayout();
+    scheduleVisualLayout(() => get().triggerVisualLayout());
   },
 
   removeVisualColumn: (tableName, colName) => {
@@ -293,7 +300,7 @@ export const useDbStore = create<DbState>((set, get) => {
         ),
       }
     }));
-    get().triggerVisualLayout();
+    scheduleVisualLayout(() => get().triggerVisualLayout());
   },
 
   updateVisualColumn: (tableName, colName, patch) => {
@@ -317,7 +324,12 @@ export const useDbStore = create<DbState>((set, get) => {
         }),
       }
     }));
-    get().triggerVisualLayout();
+    // Only trigger layout for structural changes (type, PK, nullable, unique)
+    // Name-only changes don't affect layout geometry — skip to avoid focus loss
+    const isNameOnlyPatch = Object.keys(patch).length === 1 && 'name' in patch;
+    if (!isNameOnlyPatch) {
+      scheduleVisualLayout(() => get().triggerVisualLayout());
+    }
   },
 
   addVisualFK: (fromTable, toTable) => {
@@ -370,7 +382,7 @@ export const useDbStore = create<DbState>((set, get) => {
           ],
         }
       }));
-      get().triggerVisualLayout();
+      scheduleVisualLayout(() => get().triggerVisualLayout());
     }
   },
 
@@ -395,7 +407,7 @@ export const useDbStore = create<DbState>((set, get) => {
         relationships: s.visualSchema.relationships.filter(r => r.id !== relId),
       }
     }));
-    get().triggerVisualLayout();
+    scheduleVisualLayout(() => get().triggerVisualLayout());
   },
 
   triggerVisualLayout: async () => {
