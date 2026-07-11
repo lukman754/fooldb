@@ -5,6 +5,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import SqlEditor from '@/components/editor/SqlEditor';
 import TransformationGuide from '@/components/editor/TransformationGuide';
+import VisualEditor from '@/components/editor/VisualEditor';
 import DrawioPreview from '@/components/preview/DrawioPreview';
 import { useDbStore } from '@/store/dbStore';
 
@@ -63,7 +64,7 @@ export default function Home() {
           style={{ width: `${editorWidth}px` }} 
           className="h-full flex flex-col shrink-0 overflow-hidden"
         >
-          {mode === 'transformation' ? <TransformationGuide /> : <SqlEditor />}
+          {mode === 'transformation' ? <TransformationGuide /> : mode === 'visual' ? <VisualEditor /> : <SqlEditor />}
         </div>
         
         {/* Resizer Divider Bar */}

@@ -5,14 +5,16 @@ import {
   UseCaseDiagram, 
   ActivityDiagram, 
   ActivityLayoutData, 
-  SequenceDiagram 
+  SequenceDiagram,
+  Column,
+  Table
 } from '@/types';
 import { parseSqlSchema } from '@/lib/parser/sqlParser';
 import { computeLayout, computeActivityLayout } from '@/lib/layout/elkLayout';
 import { parseUseCase, parseActivity, parseSequence } from '@/lib/parser/umlParser';
 import { generateRelationshipVerbs } from '@/lib/ai/geminiClient';
 
-export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence';
+export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual';
 
 interface DbState {
   mode: AppMode;
@@ -34,6 +36,18 @@ interface DbState {
   renderTime: number;
   zoom: number;
   error: string | null;
+
+  // Visual ERD Builder
+  visualSchema: DatabaseSchema;
+  addVisualTable: (name: string) => void;
+  removeVisualTable: (name: string) => void;
+  renameVisualTable: (oldName: string, newName: string) => void;
+  addVisualColumn: (tableName: string, column: Column) => void;
+  removeVisualColumn: (tableName: string, colName: string) => void;
+  updateVisualColumn: (tableName: string, colName: string, patch: Partial<Column>) => void;
+  addVisualFK: (fromTable: string, toTable: string) => void;
+  removeVisualRelation: (relId: string) => void;
+  triggerVisualLayout: () => Promise<void>;
   
   setMode: (mode: AppMode) => void;
   setCode: (mode: AppMode, code: string) => void;
@@ -197,9 +211,215 @@ export const useDbStore = create<DbState>((set, get) => {
   zoom: 1,
   error: null,
 
+  // Visual ERD Builder initial state
+  visualSchema: { tables: [], relationships: [] },
+
+  addVisualTable: (name) => {
+    if (!name.trim()) return;
+    const existing = get().visualSchema.tables.find(t => t.name.toLowerCase() === name.trim().toLowerCase());
+    if (existing) return;
+    const newTable: Table = {
+      name: name.trim(),
+      columns: [
+        { name: 'id', type: 'INT', isPrimaryKey: true, isNullable: false, isUnique: true, isAutoIncrement: true, defaultValue: null, enumValues: null }
+      ],
+      primaryKey: ['id'],
+      foreignKeys: [],
+      uniqueKeys: [],
+    };
+    set((state) => ({ visualSchema: { ...state.visualSchema, tables: [...state.visualSchema.tables, newTable] } }));
+    get().triggerVisualLayout();
+  },
+
+  removeVisualTable: (name) => {
+    set((state) => ({
+      visualSchema: {
+        tables: state.visualSchema.tables.filter(t => t.name !== name),
+        relationships: state.visualSchema.relationships.filter(
+          r => r.sourceTable !== name && r.targetTable !== name
+        ),
+      }
+    }));
+    get().triggerVisualLayout();
+  },
+
+  renameVisualTable: (oldName, newName) => {
+    if (!newName.trim() || oldName === newName.trim()) return;
+    set((state) => ({
+      visualSchema: {
+        tables: state.visualSchema.tables.map(t =>
+          t.name === oldName ? { ...t, name: newName.trim() } : t
+        ),
+        relationships: state.visualSchema.relationships.map(r => ({
+          ...r,
+          sourceTable: r.sourceTable === oldName ? newName.trim() : r.sourceTable,
+          targetTable: r.targetTable === oldName ? newName.trim() : r.targetTable,
+        })),
+      }
+    }));
+    get().triggerVisualLayout();
+  },
+
+  addVisualColumn: (tableName, column) => {
+    set((state) => ({
+      visualSchema: {
+        ...state.visualSchema,
+        tables: state.visualSchema.tables.map(t =>
+          t.name === tableName
+            ? {
+                ...t,
+                columns: [...t.columns, column],
+                primaryKey: column.isPrimaryKey ? [...t.primaryKey, column.name] : t.primaryKey,
+              }
+            : t
+        ),
+      }
+    }));
+    get().triggerVisualLayout();
+  },
+
+  removeVisualColumn: (tableName, colName) => {
+    set((state) => ({
+      visualSchema: {
+        ...state.visualSchema,
+        tables: state.visualSchema.tables.map(t =>
+          t.name === tableName
+            ? {
+                ...t,
+                columns: t.columns.filter(c => c.name !== colName),
+                primaryKey: t.primaryKey.filter(pk => pk !== colName),
+              }
+            : t
+        ),
+      }
+    }));
+    get().triggerVisualLayout();
+  },
+
+  updateVisualColumn: (tableName, colName, patch) => {
+    set((state) => ({
+      visualSchema: {
+        ...state.visualSchema,
+        tables: state.visualSchema.tables.map(t => {
+          if (t.name !== tableName) return t;
+          const updatedCols = t.columns.map(c => c.name === colName ? { ...c, ...patch } : c);
+          // Rebuild primary key list from updated columns
+          const newPK = updatedCols.filter(c => c.isPrimaryKey).map(c => c.name);
+          // Handle rename: if colName is being changed, update FK references
+          const newName = (patch as { name?: string }).name;
+          const fks = newName && newName !== colName
+            ? t.foreignKeys.map(fk => ({
+                ...fk,
+                columns: fk.columns.map(c => c === colName ? newName : c),
+              }))
+            : t.foreignKeys;
+          return { ...t, columns: updatedCols, primaryKey: newPK, foreignKeys: fks };
+        }),
+      }
+    }));
+    get().triggerVisualLayout();
+  },
+
+  addVisualFK: (fromTable, toTable) => {
+    const state = get();
+    const targetTableDef = state.visualSchema.tables.find(t => t.name === toTable);
+    if (!targetTableDef) return;
+    // Use the first PK of target table as the referenced column, fallback to 'id'
+    const referencedCol = targetTableDef.primaryKey[0] || 'id';
+    const fkColName = `${toTable}_${referencedCol}`;
+    // Avoid duplicating FK column
+    const fromTableDef = state.visualSchema.tables.find(t => t.name === fromTable);
+    if (!fromTableDef) return;
+    const alreadyExists = fromTableDef.columns.some(c => c.name === fkColName);
+    if (!alreadyExists) {
+      const fkCol: Column = {
+        name: fkColName,
+        type: 'INT',
+        isPrimaryKey: false,
+        isNullable: true,
+        isUnique: false,
+        isAutoIncrement: false,
+        defaultValue: null,
+        enumValues: null,
+      };
+      const relId = `${fromTable}_${toTable}_fk_${Date.now()}`;
+      set((s) => ({
+        visualSchema: {
+          tables: s.visualSchema.tables.map(t =>
+            t.name === fromTable
+              ? {
+                  ...t,
+                  columns: [...t.columns, fkCol],
+                  foreignKeys: [
+                    ...t.foreignKeys,
+                    { columns: [fkColName], referencedTable: toTable, referencedColumns: [referencedCol] }
+                  ],
+                }
+              : t
+          ),
+          relationships: [
+            ...s.visualSchema.relationships,
+            {
+              id: relId,
+              sourceTable: fromTable,
+              sourceColumns: [fkColName],
+              targetTable: toTable,
+              targetColumns: [referencedCol],
+              type: '1:N' as const,
+            },
+          ],
+        }
+      }));
+      get().triggerVisualLayout();
+    }
+  },
+
+  removeVisualRelation: (relId) => {
+    const state = get();
+    const rel = state.visualSchema.relationships.find(r => r.id === relId);
+    if (!rel) return;
+    // Remove the FK column from the source table
+    set((s) => ({
+      visualSchema: {
+        tables: s.visualSchema.tables.map(t =>
+          t.name === rel.sourceTable
+            ? {
+                ...t,
+                columns: t.columns.filter(c => !rel.sourceColumns.includes(c.name)),
+                foreignKeys: t.foreignKeys.filter(
+                  fk => !(fk.referencedTable === rel.targetTable && fk.columns.some(c => rel.sourceColumns.includes(c)))
+                ),
+              }
+            : t
+        ),
+        relationships: s.visualSchema.relationships.filter(r => r.id !== relId),
+      }
+    }));
+    get().triggerVisualLayout();
+  },
+
+  triggerVisualLayout: async () => {
+    const { visualSchema } = get();
+    if (visualSchema.tables.length === 0) {
+      set({ layout: null, schema: visualSchema, error: null });
+      return;
+    }
+    try {
+      const layout = await computeLayout(visualSchema);
+      set({ layout, schema: visualSchema, error: null });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      set({ error: msg });
+    }
+  },
+
   setMode: (mode) => {
     set({ mode });
-    get().triggerParse(mode);
+    if (mode === 'visual') {
+      get().triggerVisualLayout();
+    } else {
+      get().triggerParse(mode);
+    }
   },
 
   setCode: (mode, code) => {
@@ -215,6 +435,11 @@ export const useDbStore = create<DbState>((set, get) => {
   },
 
   triggerParse: async (modeArg, codeArg) => {
+    // Visual mode uses triggerVisualLayout instead
+    if ((modeArg ?? get().mode) === 'visual') {
+      await get().triggerVisualLayout();
+      return;
+    }
     const targetMode = modeArg !== undefined ? modeArg : get().mode;
     const startTime = performance.now();
 

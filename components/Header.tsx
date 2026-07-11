@@ -319,7 +319,7 @@ export default function Header() {
 
   // Check if diagram is generated and can be exported
   let isExportable = false;
-  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation') {
+  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') {
     isExportable = layout !== null;
   } else if (mode === 'usecase') {
     isExportable = usecaseDiagram !== null;
@@ -335,9 +335,9 @@ export default function Header() {
     let xml = '';
     let filenameBase = 'diagram';
 
-    if (mode === 'erd') {
+    if (mode === 'erd' || mode === 'visual') {
       if (layout) xml = generateDrawioXml(layout, attrPositions, relNotation);
-      filenameBase = 'database_erd';
+      filenameBase = mode === 'visual' ? 'visual_erd' : 'database_erd';
     } else if (mode === 'lrs' || mode === 'transformation') {
       if (layout) xml = generateLrsXml(layout);
       filenameBase = 'database_lrs';
@@ -398,7 +398,8 @@ export default function Header() {
           { id: 'transformation', label: 'ERD ➔ LRS' },
           { id: 'usecase', label: 'Use case' },
           { id: 'activity', label: 'Activity' },
-          { id: 'sequence', label: 'Sequence' }
+          { id: 'sequence', label: 'Sequence' },
+          { id: 'visual', label: '✦ Visual Builder' },
         ].map((tab) => {
           const isActive = mode === tab.id;
           return (
@@ -420,7 +421,7 @@ export default function Header() {
       {/* Right: Controls */}
       <div className="flex items-center gap-3">
         {/* Templates Dropdown */}
-        {mode !== 'transformation' && (
+        {mode !== 'transformation' && mode !== 'visual' && (
           <div className="relative">
             <button
               onClick={() => setShowTemplateMenu(!showTemplateMenu)}
@@ -457,7 +458,7 @@ export default function Header() {
         )}
 
         {/* Import Code Button */}
-        {mode !== 'transformation' && (
+        {mode !== 'transformation' && mode !== 'visual' && (
           <button
             onClick={handleImportClick}
             className="flex h-9 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
