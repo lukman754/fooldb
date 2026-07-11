@@ -557,8 +557,8 @@ export default function DrawioPreview() {
               </marker>
             </defs>
 
-            {/* A. RENDER MODE: CHEN ERD */}
-            {mode === 'erd' && layout && (() => {
+            {/* A. RENDER MODE: CHEN ERD + VISUAL BUILDER */}
+            {(mode === 'erd' || mode === 'visual') && layout && (() => {
               // Helper to get intersection point on box border (120x45 rect)
               const getBorderPoint = (center: {x: number; y: number}, toward: {x: number; y: number}, w = 120, h = 45) => {
                 const dx = toward.x - center.x;
@@ -866,8 +866,8 @@ export default function DrawioPreview() {
                 </>
               );
             })()}
-             {/* B. RENDER MODE: LRS SCHEMA / VISUAL BUILDER */}
-            {(mode === 'lrs' || mode === 'transformation' || mode === 'visual') && layout && (
+             {/* B. RENDER MODE: LRS SCHEMA */}
+            {(mode === 'lrs' || mode === 'transformation') && layout && (
               <>
                 {/* 1. Draw Connectors (Orthogonal lines) */}
                 {layout.edges.map((edge) => {

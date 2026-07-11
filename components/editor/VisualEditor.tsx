@@ -66,18 +66,30 @@ function InlineEdit({
 // Column Row
 // ────────────────────────────────────────────────
 function ColumnRow({
-  col, onUpdate, onRemove, isLocked,
+  col, onUpdate, onRemove, isLocked, autoFocus = false,
 }: {
   tableName: string;
   col: Column;
   onUpdate: (patch: Partial<Column>) => void;
   onRemove: () => void;
   isLocked: boolean;
+  autoFocus?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   // Local state for the name input — avoids losing focus on every keystroke
   const [localName, setLocalName] = useState(col.name);
   // Sync if col.name changes externally (e.g. FK rename from store)
   useEffect(() => { setLocalName(col.name); }, [col.name]);
+
+  // Auto-focus & select-all when this row is newly created
+  useEffect(() => {
+    if (autoFocus && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally only on mount
 
   const commitName = useCallback(() => {
     const trimmed = localName.trim();
@@ -89,6 +101,7 @@ function ColumnRow({
     <div className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-800/60 transition-colors">
       {/* Name — local state, sync on blur/Enter */}
       <input
+        ref={inputRef}
         value={localName}
         onChange={(e) => setLocalName(e.target.value)}
         onBlur={commitName}
@@ -167,6 +180,8 @@ function TableCard({ tableName }: { tableName: string }) {
 
   const [collapsed, setCollapsed] = useState(false);
   const [showFkMenu, setShowFkMenu] = useState(false);
+  // Track name of the most recently added column to auto-focus its input
+  const [justAddedColName, setJustAddedColName] = useState<string | null>(null);
 
   const table = visualSchema.tables.find((t) => t.name === tableName);
   if (!table) return null;
@@ -177,8 +192,14 @@ function TableCard({ tableName }: { tableName: string }) {
     .map((t) => t.name);
 
   const handleAddColumn = () => {
+    // Generate unique name (column, column_2, column_3, ...)
+    const existingNames = new Set(table.columns.map(c => c.name));
+    let newName = 'column';
+    let counter = 2;
+    while (existingNames.has(newName)) newName = `column_${counter++}`;
+
     const newCol: Column = {
-      name: 'new_column',
+      name: newName,
       type: 'VARCHAR(255)',
       isPrimaryKey: false,
       isNullable: true,
@@ -188,6 +209,7 @@ function TableCard({ tableName }: { tableName: string }) {
       enumValues: null,
     };
     addVisualColumn(tableName, newCol);
+    setJustAddedColName(newName);
   };
 
   return (
@@ -277,6 +299,7 @@ function TableCard({ tableName }: { tableName: string }) {
                   onUpdate={(patch) => updateVisualColumn(tableName, col.name, patch)}
                   onRemove={() => removeVisualColumn(tableName, col.name)}
                   isLocked={isFkCol}
+                  autoFocus={col.name === justAddedColName}
                 />
               );
             })}
