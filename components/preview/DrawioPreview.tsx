@@ -53,7 +53,7 @@ export default function DrawioPreview() {
   let canvasHeight = 600;
   let hasDiagramData = false;
 
-  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation') {
+  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') {
     if (layout) {
       canvasWidth = layout.width;
       canvasHeight = layout.height;
@@ -866,8 +866,8 @@ export default function DrawioPreview() {
                 </>
               );
             })()}
-             {/* B. RENDER MODE: LRS SCHEMA */}
-            {(mode === 'lrs' || mode === 'transformation') && layout && (
+             {/* B. RENDER MODE: LRS SCHEMA / VISUAL BUILDER */}
+            {(mode === 'lrs' || mode === 'transformation' || mode === 'visual') && layout && (
               <>
                 {/* 1. Draw Connectors (Orthogonal lines) */}
                 {layout.edges.map((edge) => {
