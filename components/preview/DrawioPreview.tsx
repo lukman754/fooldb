@@ -149,15 +149,27 @@ export default function DrawioPreview() {
     setDraggingAttr(null);
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const zoomIntensity = 0.08;
-    const delta = e.deltaY < 0 ? 1 : -1;
-    setZoom((prevZoom) => {
-      const nextZoom = prevZoom + delta * zoomIntensity * prevZoom;
-      return Math.max(0.1, Math.min(3, nextZoom));
-    });
-  };
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      // Prevent browser default scrolling or page-level pinch-to-zoom
+      e.preventDefault();
+
+      const zoomIntensity = 0.08;
+      const delta = e.deltaY < 0 ? 1 : -1;
+      setZoom((prevZoom) => {
+        const nextZoom = prevZoom + delta * zoomIntensity * prevZoom;
+        return Math.max(0.1, Math.min(3, nextZoom));
+      });
+    };
+
+    container.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [setZoom]);
 
   // Zoom control buttons
   const handleZoomIn = () => setZoom((z) => z + 0.1);
@@ -322,7 +334,6 @@ export default function DrawioPreview() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
       >
         {error && (
           <div className="absolute inset-x-4 top-4 bg-red-950/70 border border-red-900 text-red-200 p-4 rounded-lg z-20 flex flex-col gap-1">
