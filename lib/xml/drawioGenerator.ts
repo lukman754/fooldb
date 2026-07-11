@@ -85,7 +85,7 @@ export function generateDrawioXml(
     const attrs = table.columns.map((col, idx) => {
       const key = `${table.name}-${col.name}`;
       const defaultAngle = (2 * Math.PI * idx) / N;
-      const defaultRadius = 60 + N * 3.5;
+      const defaultRadius = 85 + N * 5;
       const pos = (attrPositions && attrPositions[key]) || { angle: defaultAngle, radius: defaultRadius };
       const w_attr = Math.max(60, col.name.length * 8 + 16);
       const h_attr = 30;
