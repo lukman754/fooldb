@@ -10,6 +10,7 @@ export default function SqlEditor() {
   const usecaseCode = useDbStore((state) => state.usecaseCode);
   const activityCode = useDbStore((state) => state.activityCode);
   const sequenceCode = useDbStore((state) => state.sequenceCode);
+  const visualSchemaActive = useDbStore((state) => state.visualSchemaActive);
   const setCode = useDbStore((state) => state.setCode);
   const triggerParse = useDbStore((state) => state.triggerParse);
 
@@ -28,6 +29,8 @@ export default function SqlEditor() {
     activeLanguage = 'markdown';
   }
 
+  const isVisualBuilderSql = visualSchemaActive && (mode === 'erd' || mode === 'lrs' || mode === 'transformation');
+
   const [value, setValue] = useState(activeCode);
 
   // Sync value when the active code or mode changes
@@ -37,18 +40,24 @@ export default function SqlEditor() {
 
   // Debounce parsing when typing
   useEffect(() => {
+    if (isVisualBuilderSql) return;
     const timer = setTimeout(() => {
       setCode(mode, value);
       triggerParse(mode, value);
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [value, mode, setCode, triggerParse]);
+  }, [value, mode, setCode, triggerParse, isVisualBuilderSql]);
 
   return (
     <div className="h-full w-full border-r border-zinc-800 bg-zinc-900">
+      {isVisualBuilderSql && (
+        <div className="flex h-8 items-center border-b border-blue-900/50 bg-blue-950/20 px-3 text-[10px] font-medium text-blue-300">
+          SQL generated from Visual Builder (read-only)
+        </div>
+      )}
       <Editor
-        height="100%"
+        height={isVisualBuilderSql ? "calc(100% - 32px)" : "100%"}
         language={activeLanguage}
         theme="vs-dark"
         value={value}
@@ -64,6 +73,7 @@ export default function SqlEditor() {
           padding: { top: 16, bottom: 16 },
           fontFamily: "'Fira Code', 'Courier New', Courier, monospace",
           fontLigatures: true,
+          readOnly: isVisualBuilderSql,
         }}
         loading={
           <div className="flex h-full w-full items-center justify-center bg-zinc-950 text-zinc-400">

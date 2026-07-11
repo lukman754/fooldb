@@ -13,11 +13,13 @@ import { parseSqlSchema } from '@/lib/parser/sqlParser';
 import { computeLayout, computeActivityLayout } from '@/lib/layout/elkLayout';
 import { parseUseCase, parseActivity, parseSequence } from '@/lib/parser/umlParser';
 import { generateRelationshipVerbs } from '@/lib/ai/geminiClient';
+import { visualSchemaToSql } from '@/lib/parser/visualToSql';
 
 export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual';
 
 // Debounce timer for visual layout — prevents spamming ELK.js on rapid store updates
 let visualLayoutTimer: ReturnType<typeof setTimeout> | null = null;
+const BUILDER_CACHE_KEY = 'fooldb_builder_state';
 function scheduleVisualLayout(fn: () => void, delay = 120) {
   if (visualLayoutTimer !== null) clearTimeout(visualLayoutTimer);
   visualLayoutTimer = setTimeout(() => { visualLayoutTimer = null; fn(); }, delay);
@@ -46,12 +48,14 @@ interface DbState {
 
   // Visual ERD Builder
   visualSchema: DatabaseSchema;
+  visualSchemaActive: boolean;
   addVisualTable: (name: string) => void;
   removeVisualTable: (name: string) => void;
   renameVisualTable: (oldName: string, newName: string) => void;
   addVisualColumn: (tableName: string, column: Column) => void;
   removeVisualColumn: (tableName: string, colName: string) => void;
   updateVisualColumn: (tableName: string, colName: string, patch: Partial<Column>) => void;
+  updateVisualRelationCardinality: (relId: string, sourceCardinality: 'one' | 'many', targetCardinality: 'one' | 'many') => void;
   addVisualFK: (fromTable: string, toTable: string) => void;
   removeVisualRelation: (relId: string) => void;
   triggerVisualLayout: () => Promise<void>;
@@ -220,6 +224,7 @@ export const useDbStore = create<DbState>((set, get) => {
 
   // Visual ERD Builder initial state
   visualSchema: { tables: [], relationships: [] },
+  visualSchemaActive: false,
 
   addVisualTable: (name) => {
     if (!name.trim()) return;
@@ -305,24 +310,48 @@ export const useDbStore = create<DbState>((set, get) => {
 
   updateVisualColumn: (tableName, colName, patch) => {
     set((state) => ({
-      visualSchema: {
-        ...state.visualSchema,
-        tables: state.visualSchema.tables.map(t => {
+      ...(() => {
+        let updatedTable: Table | undefined;
+        const newName = (patch as { name?: string }).name;
+        const tables = state.visualSchema.tables.map(t => {
           if (t.name !== tableName) return t;
           const updatedCols = t.columns.map(c => c.name === colName ? { ...c, ...patch } : c);
           // Rebuild primary key list from updated columns
           const newPK = updatedCols.filter(c => c.isPrimaryKey).map(c => c.name);
           // Handle rename: if colName is being changed, update FK references
-          const newName = (patch as { name?: string }).name;
           const fks = newName && newName !== colName
             ? t.foreignKeys.map(fk => ({
                 ...fk,
                 columns: fk.columns.map(c => c === colName ? newName : c),
               }))
             : t.foreignKeys;
-          return { ...t, columns: updatedCols, primaryKey: newPK, foreignKeys: fks };
-        }),
-      }
+          updatedTable = { ...t, columns: updatedCols, primaryKey: newPK, foreignKeys: fks };
+          return updatedTable;
+        });
+        const relationships = state.visualSchema.relationships.map(rel =>
+          newName && newName !== colName && rel.sourceTable === tableName
+            ? { ...rel, sourceColumns: rel.sourceColumns.map(c => c === colName ? newName : c) }
+            : rel
+        );
+        const visualSchema = { ...state.visualSchema, tables, relationships };
+
+        // The preview renders table data from `layout`. Mirror the changed table
+        // there immediately so the diagram label updates on every keystroke.
+        const layout = state.layout && updatedTable
+          ? {
+              ...state.layout,
+              nodes: state.layout.nodes.map(node =>
+                node.table.name === tableName ? { ...node, table: updatedTable! } : node
+              ),
+              edges: state.layout.edges.map(edge => ({
+                ...edge,
+                relationship: relationships.find(rel => rel.id === edge.relationship.id) ?? edge.relationship,
+              })),
+            }
+          : state.layout;
+
+        return { visualSchema, layout };
+      })(),
     }));
     // Only trigger layout for structural changes (type, PK, nullable, unique)
     // Name-only changes don't affect layout geometry — skip to avoid focus loss
@@ -330,6 +359,31 @@ export const useDbStore = create<DbState>((set, get) => {
     if (!isNameOnlyPatch) {
       scheduleVisualLayout(() => get().triggerVisualLayout());
     }
+  },
+
+  updateVisualRelationCardinality: (relId, sourceCardinality, targetCardinality) => {
+    const type: '1:1' | '1:N' | 'M:N' = sourceCardinality === 'one' && targetCardinality === 'one'
+      ? '1:1'
+      : sourceCardinality === 'many' && targetCardinality === 'many'
+        ? 'M:N'
+        : '1:N';
+    set((state) => {
+      const relationships = state.visualSchema.relationships.map(rel =>
+        rel.id === relId ? { ...rel, type, sourceCardinality, targetCardinality } : rel
+      );
+      return {
+        visualSchema: { ...state.visualSchema, relationships },
+        layout: state.layout
+          ? {
+              ...state.layout,
+              edges: state.layout.edges.map(edge => ({
+                ...edge,
+                relationship: relationships.find(rel => rel.id === edge.relationship.id) ?? edge.relationship,
+              })),
+            }
+          : state.layout,
+      };
+    });
   },
 
   addVisualFK: (fromTable, toTable) => {
@@ -418,6 +472,8 @@ export const useDbStore = create<DbState>((set, get) => {
     }
     try {
       const layout = await computeLayout(visualSchema);
+      // Ignore an outdated async layout result if the schema changed while ELK ran.
+      if (get().visualSchema !== visualSchema) return;
       set({ layout, schema: visualSchema, error: null });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -426,17 +482,28 @@ export const useDbStore = create<DbState>((set, get) => {
   },
 
   setMode: (mode) => {
-    set({ mode });
-    if (mode === 'visual') {
+    const hasVisualSchema = get().visualSchema.tables.length > 0;
+    const isDatabaseMode = mode === 'erd' || mode === 'lrs' || mode === 'transformation';
+
+    if (isDatabaseMode && hasVisualSchema) {
+      set({
+        mode,
+        sqlCode: visualSchemaToSql(get().visualSchema),
+        visualSchemaActive: true,
+      });
+      get().triggerVisualLayout();
+    } else if (mode === 'visual') {
+      set({ mode });
       get().triggerVisualLayout();
     } else {
+      set({ mode });
       get().triggerParse(mode);
     }
   },
 
   setCode: (mode, code) => {
     if (mode === 'erd' || mode === 'lrs' || mode === 'transformation') {
-      set({ sqlCode: code });
+      set({ sqlCode: code, visualSchemaActive: false });
     } else if (mode === 'usecase') {
       set({ usecaseCode: code });
     } else if (mode === 'activity') {
@@ -453,6 +520,14 @@ export const useDbStore = create<DbState>((set, get) => {
       return;
     }
     const targetMode = modeArg !== undefined ? modeArg : get().mode;
+    if (
+      (targetMode === 'erd' || targetMode === 'lrs' || targetMode === 'transformation') &&
+      get().visualSchemaActive &&
+      get().visualSchema.tables.length > 0
+    ) {
+      await get().triggerVisualLayout();
+      return;
+    }
     const startTime = performance.now();
 
     try {
@@ -632,6 +707,22 @@ export const useDbStore = create<DbState>((set, get) => {
       } catch {
         // ignore
       }
+      try {
+        const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
+        if (cachedBuilderState) {
+          const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation'
+          >>;
+          set(cached);
+          if (cached.visualSchema?.tables?.length) {
+            get().triggerVisualLayout();
+          } else if (cached.sqlCode) {
+            get().triggerParse('erd', cached.sqlCode);
+          }
+        }
+      } catch {
+        // Ignore malformed or stale browser cache.
+      }
     }
   },
 
@@ -680,3 +771,18 @@ export const useDbStore = create<DbState>((set, get) => {
   setRelNotation: (notation) => set({ relNotation: notation }),
 };
 });
+
+if (typeof window !== 'undefined') {
+  useDbStore.subscribe((state) => {
+    const cache = {
+      visualSchema: state.visualSchema,
+      visualSchemaActive: state.visualSchemaActive,
+      sqlCode: state.sqlCode,
+      usecaseCode: state.usecaseCode,
+      activityCode: state.activityCode,
+      sequenceCode: state.sequenceCode,
+      relNotation: state.relNotation,
+    };
+    localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
+  });
+}

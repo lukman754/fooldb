@@ -35,6 +35,8 @@ export interface Relationship {
   targetTable: string;
   targetColumns: string[];
   type: '1:1' | '1:N' | 'M:N';
+  sourceCardinality?: 'one' | 'many';
+  targetCardinality?: 'one' | 'many';
   verb?: string;
 }
 
@@ -162,4 +164,3 @@ export interface ActivityLayoutData {
   nodes: ActivityLayoutNode[];
   edges: ActivityLayoutEdge[];
 }
-

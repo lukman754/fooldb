@@ -12,6 +12,7 @@ import { useDbStore } from '@/store/dbStore';
 export default function Home() {
   const triggerParse = useDbStore((state) => state.triggerParse);
   const mode = useDbStore((state) => state.mode);
+  const visualSchemaActive = useDbStore((state) => state.visualSchemaActive);
   const [editorWidth, setEditorWidth] = useState(520); // Default editor width in pixels
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -64,7 +65,13 @@ export default function Home() {
           style={{ width: `${editorWidth}px` }} 
           className="h-full flex flex-col shrink-0 overflow-hidden"
         >
-          {mode === 'transformation' ? <TransformationGuide /> : mode === 'visual' ? <VisualEditor /> : <SqlEditor />}
+          {mode === 'visual' ? (
+            <VisualEditor />
+          ) : mode === 'transformation' && !visualSchemaActive ? (
+            <TransformationGuide />
+          ) : (
+            <SqlEditor />
+          )}
         </div>
         
         {/* Resizer Divider Bar */}

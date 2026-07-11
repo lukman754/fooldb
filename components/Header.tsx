@@ -393,13 +393,13 @@ export default function Header() {
       {/* Middle: Mode Tabs */}
       <div className="hidden lg:flex items-center gap-1 bg-zinc-900/50 p-1 border border-zinc-800 rounded-lg">
         {[
+          { id: 'visual', label: 'ERD / LRS Builder' },
           { id: 'erd', label: 'Chen ERD' },
           { id: 'lrs', label: 'LRS Schema' },
           { id: 'transformation', label: 'ERD ➔ LRS' },
           { id: 'usecase', label: 'Use case' },
           { id: 'activity', label: 'Activity' },
           { id: 'sequence', label: 'Sequence' },
-          { id: 'visual', label: '✦ Visual Builder' },
         ].map((tab) => {
           const isActive = mode === tab.id;
           return (

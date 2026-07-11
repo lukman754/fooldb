@@ -205,8 +205,9 @@ export default function DrawioPreview() {
           <span className="text-xs font-medium text-zinc-400">
             Preview mode: <span className="text-blue-500 font-semibold">{mode}</span>
           </span>
-          {(mode === 'erd' || mode === 'lrs' || mode === 'transformation') && (
+          {(mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') && (
             <>
+              {mode !== 'visual' && (
               <button
                 onClick={() => setShowTableFilter(!showTableFilter)}
                 className={`flex h-7 px-2.5 items-center justify-center gap-1.5 rounded-md border text-[10px] font-bold uppercase tracking-wide transition ${
@@ -219,6 +220,7 @@ export default function DrawioPreview() {
                 <Filter className="h-3.5 w-3.5" />
                 <span>Filter tables ({schema.tables.length - excludedTables.length}/{schema.tables.length})</span>
               </button>
+              )}
 
               {/* Relationship Notation Toggle */}
               <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden">
@@ -247,6 +249,7 @@ export default function DrawioPreview() {
                 </button>
               </div>
 
+              {mode !== 'visual' && (
               <button
                 onClick={() => {
                   triggerAiLabeling().catch((err) => alert(err.message));
@@ -266,6 +269,7 @@ export default function DrawioPreview() {
                 )}
                 <span>{isAiLoading ? 'AI Analyzing...' : 'AI auto-label'}</span>
               </button>
+              )}
             </>
           )}
         </div>
@@ -343,7 +347,7 @@ export default function DrawioPreview() {
         )}
 
         {showTableFilter && (mode === 'erd' || mode === 'lrs' || mode === 'transformation') && (
-          <div className="absolute left-6 top-6 bottom-6 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-10 select-none max-h-[85%]">
+          <div className="absolute left-6 top-6 bottom-6 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none max-h-[85%]">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
               <div className="flex items-center gap-1.5">
                 <Filter className="h-4 w-4 text-blue-500" />
@@ -397,7 +401,7 @@ export default function DrawioPreview() {
 
         {selectedAttr && (
           <div
-            className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-10 select-none"
+            className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
@@ -789,7 +793,10 @@ export default function DrawioPreview() {
                     const srcPt2 = edge.points[1] ?? srcPt;
                     const tgtPt = edge.points[edge.points.length - 1];
                     const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
-                    const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
+                    const sourceCardinality = rel.sourceCardinality ?? 'one';
+                    const targetCardinality = rel.targetCardinality ?? (rel.type === '1:1' ? 'one' : 'many');
+                    const srcLabel = sourceCardinality === 'many' ? 'N' : '1';
+                    const tgtLabel = targetCardinality === 'many' ? 'N' : '1';
 
                     const sn = layout.nodes.find(n => n.id === rel.sourceTable);
                     const tn = layout.nodes.find(n => n.id === rel.targetTable);
@@ -806,15 +813,23 @@ export default function DrawioPreview() {
                       <g key={`overlay_${edge.id}`}>
                         {relNotation === 'crowsfoot' ? (
                           <>
-                            {/* Source side tick (Mandatory 1): single tick at 10px */}
-                            {(() => {
+                            {/* Source-side cardinality marker */}
+                            {sourceCardinality === 'one' ? (() => {
                               const u = uSrc, px = -u.y, py = u.x;
                               const bx = srcBorder.x + u.x * 10, by = srcBorder.y + u.y * 10;
                               return <line x1={bx+px*5} y1={by+py*5} x2={bx-px*5} y2={by-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
+                            })() : (() => {
+                              const u = uSrc, px = -u.y, py = u.x;
+                              const far = { x: srcBorder.x + u.x * 12, y: srcBorder.y + u.y * 12 };
+                              return <g>
+                                <line x1={srcBorder.x + px * 5} y1={srcBorder.y + py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                <line x1={srcBorder.x} y1={srcBorder.y} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                                <line x1={srcBorder.x - px * 5} y1={srcBorder.y - py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
+                              </g>;
                             })()}
 
                             {/* Target side marker: single tick for 1:1, crow's foot for many */}
-                            {rel.type === '1:1' ? (() => {
+                            {targetCardinality === 'one' ? (() => {
                               const u = uTgt, px = -u.y, py = u.x;
                               const bx = tgtBorder.x + u.x * 10, by = tgtBorder.y + u.y * 10;
                               return <line x1={bx+px*5} y1={by+py*5} x2={bx-px*5} y2={by-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
@@ -837,7 +852,7 @@ export default function DrawioPreview() {
                               const u = uSrc, px = -u.y, py = u.x;
                               const lx = srcBorder.x + u.x*36 + px*14, ly = srcBorder.y + u.y*36 + py*14;
                               return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
-                                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>1</text></g>);
+                                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>{srcLabel}</text></g>);
                             })()}
                             {(() => {
                               const u = uTgt, px = -u.y, py = u.x;
