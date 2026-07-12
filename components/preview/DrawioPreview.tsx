@@ -29,6 +29,7 @@ export default function DrawioPreview() {
   const zoom = useDbStore((state) => state.zoom);
   const setZoom = useDbStore((state) => state.setZoom);
   const resetZoom = useDbStore((state) => state.resetZoom);
+  const fitTrigger = useDbStore((state) => state.fitTrigger);
 
   // Zooming & Panning refs and states
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +60,7 @@ export default function DrawioPreview() {
       canvasHeight = layout.height;
       hasDiagramData = true;
     }
-  } else if (mode === 'usecase') {
+  } else if (mode === 'usecase' || mode === 'uml') {
     if (usecaseDiagram) {
       canvasWidth = 720;
       canvasHeight = Math.max(400, usecaseDiagram.usecases.length * 90 + 120);
@@ -183,13 +184,10 @@ export default function DrawioPreview() {
     if (!containerRef.current || !hasDiagramData) return;
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
-
-    // Add extra padding margins
     const padding = 60;
     const scaleX = (containerWidth - padding) / canvasWidth;
     const scaleY = (containerHeight - padding) / canvasHeight;
     const fitScale = Math.max(0.1, Math.min(1.5, Math.min(scaleX, scaleY)));
-
     setZoom(fitScale);
     setPan({
       x: (containerWidth - canvasWidth * fitScale) / 2,
@@ -197,134 +195,88 @@ export default function DrawioPreview() {
     });
   };
 
+  // React to fit trigger from Footer
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (fitTrigger > 0) handleFit(); }, [fitTrigger]);
+
   return (
     <div className="relative flex h-full w-full flex-col bg-zinc-950 select-none">
-      {/* 1. Header Toolbar */}
-      <div className="flex h-11 w-full items-center justify-between border-b border-zinc-800 bg-zinc-950 px-4 shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-medium text-zinc-400">
-            Preview mode: <span className="text-blue-500 font-semibold">{mode}</span>
+      {/* 1. Preview Toolbar */}
+      <div className="flex h-10 w-full items-center justify-between border-b border-zinc-800 bg-zinc-950 px-3 shrink-0 gap-2">
+        {/* Left: Mode label + diagram controls */}
+        <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-minimal">
+          <span className="text-xs font-medium text-zinc-500 shrink-0">
+            Mode: <span className="text-blue-400 font-semibold">{mode}</span>
           </span>
+
           {(mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') && (
             <>
+              <div className="w-px h-4 bg-zinc-800 shrink-0" />
+
+              {/* Filter Tables */}
               {mode !== 'visual' && (
-              <button
-                onClick={() => setShowTableFilter(!showTableFilter)}
-                className={`flex h-7 px-2.5 items-center justify-center gap-1.5 rounded-md border text-[10px] font-bold uppercase tracking-wide transition ${
-                  showTableFilter
-                    ? 'border-blue-600/30 bg-blue-950/20 text-blue-400'
-                    : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                }`}
-                title="Toggle Tables Filter Checklist"
-              >
-                <Filter className="h-3.5 w-3.5" />
-                <span>Filter tables ({schema.tables.length - excludedTables.length}/{schema.tables.length})</span>
-              </button>
+                <button
+                  onClick={() => setShowTableFilter(!showTableFilter)}
+                  className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
+                    showTableFilter
+                      ? 'border-blue-600/40 bg-blue-950/30 text-blue-400'
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                  }`}
+                  title="Toggle table filter"
+                >
+                  <Filter className="h-3.5 w-3.5 shrink-0" />
+                  <span className="hidden sm:inline">Filter tables</span>
+                  <span className="text-zinc-500 text-[10px]">({schema.tables.length - excludedTables.length}/{schema.tables.length})</span>
+                </button>
               )}
 
-              {/* Relationship Notation Toggle */}
-              <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden">
+              {/* Relationship Notation */}
+              <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden shrink-0">
                 <button
                   onClick={() => setRelNotation('crowsfoot')}
                   title="Crow's Foot notation"
-                  className={`h-7 px-2 text-[10px] font-bold transition ${
+                  className={`h-7 px-2.5 text-xs font-medium transition ${
                     relNotation === 'crowsfoot'
                       ? 'bg-blue-600 text-white'
                       : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
                   }`}
                 >
-                   crow’s foot
+                  Crow&apos;s Foot
                 </button>
                 <div className="w-px h-4 bg-zinc-700" />
                 <button
                   onClick={() => setRelNotation('label')}
                   title="1:N / M:N label notation"
-                  className={`h-7 px-2 text-[10px] font-bold transition ${
+                  className={`h-7 px-2.5 text-xs font-medium transition ${
                     relNotation === 'label'
                       ? 'bg-blue-600 text-white'
                       : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
                   }`}
                 >
-                  1:N / M:N
+                  1:N
                 </button>
               </div>
 
+              {/* AI Auto-label */}
               {mode !== 'visual' && (
-              <button
-                onClick={() => {
-                  triggerAiLabeling().catch((err) => alert(err.message));
-                }}
-                disabled={isAiLoading}
-                className={`flex h-7 px-2.5 items-center justify-center gap-1.5 rounded-md border text-[10px] font-bold uppercase tracking-wide transition ${
-                  isAiLoading
-                    ? 'border-blue-600/30 bg-blue-950/20 text-blue-400 cursor-not-allowed'
-                    : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                }`}
-                title="Auto-label database relationships using Gemini AI"
-              >
-                {isAiLoading ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500" />
-                ) : (
-                  <Sparkles className="h-3.5 w-3.5 text-blue-500" />
-                )}
-                <span>{isAiLoading ? 'AI Analyzing...' : 'AI auto-label'}</span>
-              </button>
+                <button
+                  onClick={() => triggerAiLabeling().catch((err) => alert(err.message))}
+                  disabled={isAiLoading}
+                  className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
+                    isAiLoading
+                      ? 'border-blue-600/40 bg-blue-950/30 text-blue-400 cursor-not-allowed'
+                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                  }`}
+                  title="Auto-label relationships using Gemini AI"
+                >
+                  {isAiLoading
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
+                    : <Sparkles className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
+                  <span className="hidden sm:inline">{isAiLoading ? 'Analyzing...' : 'AI Auto-label'}</span>
+                </button>
               )}
             </>
           )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Zoom controls */}
-          <button
-            onClick={handleZoomOut}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
-            title="Zoom Out"
-          >
-            <ZoomOut className="h-4 w-4" />
-          </button>
-          
-          <span className="min-w-[48px] text-center text-xs font-mono font-medium text-zinc-400">
-            {Math.round(zoom * 100)}%
-          </span>
-
-          <button
-            onClick={handleZoomIn}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
-            title="Zoom In"
-          >
-            <ZoomIn className="h-4 w-4" />
-          </button>
-
-          <div className="h-4 w-px bg-zinc-800" />
-
-          {/* Fit and Reload */}
-          <button
-            onClick={handleFit}
-            className="flex h-8 px-2.5 items-center justify-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
-            title="Fit to Screen"
-          >
-            <Maximize2 className="h-3.5 w-3.5" />
-            <span>Fit</span>
-          </button>
-
-          <button
-            onClick={handleReset}
-            className="flex h-8 px-2.5 items-center justify-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
-            title="Reset View"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>100%</span>
-          </button>
-
-          <button
-            onClick={() => triggerParse(mode)}
-            className="flex h-8 px-2.5 items-center justify-center gap-1 rounded-md border border-zinc-800 bg-zinc-900 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200"
-            title="Reload Diagram"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
-          </button>
         </div>
       </div>
 
@@ -956,7 +908,7 @@ export default function DrawioPreview() {
             )}
 
             {/* C. RENDER MODE: USE CASE DIAGRAM */}
-            {mode === 'usecase' && usecaseDiagram && (
+            {(mode === 'usecase' || mode === 'uml') && usecaseDiagram && (
               <>
                 {/* 1. Draw System Boundaries */}
                 {usecaseDiagram.systems.length > 0 ? (
@@ -1004,24 +956,42 @@ export default function DrawioPreview() {
                     }
                   }
 
+
+                  const midX = (sx + tx) / 2;
+                  const midY = (sy + ty) / 2;
                   return (
-                    <line key={conn.id} x1={sx} y1={sy} x2={tx} y2={ty} stroke="#52525b" strokeWidth={1.5} />
+                    <g key={conn.id}>
+                      <line x1={sx} y1={sy} x2={tx} y2={ty}
+                        stroke={conn.label ? "#2563eb" : "#52525b"}
+                        strokeWidth={1.5}
+                        strokeDasharray={conn.label ? "5,3" : "none"}
+                        markerEnd={conn.label ? "url(#sequence-arrow)" : undefined} />
+                      {conn.label && (
+                        <text x={midX} y={midY - 4} textAnchor="middle" fill="#2563eb"
+                          className="text-[8px] font-mono font-bold"
+                          style={{ paintOrder: "stroke", stroke: "#09090b", strokeWidth: "3px" }}>
+                          {conn.label}
+                        </text>
+                      )}
+                    </g>
                   );
                 })}
+
 
                 {/* 3. Draw Actors */}
                 {usecaseDiagram.actors.map((act, idx) => {
                   const spacing = Math.max(120, Math.max(320, usecaseDiagram.usecases.length * 90 + 80) / (usecaseDiagram.actors.length || 1));
                   const ay = 60 + 40 + idx * spacing;
-                  
+                  const isRight = act.side === 'right';
+                  const ax = isRight ? 660 : 80;
                   return (
                     <g key={act.id}>
-                      <circle cx={80 + 15} cy={ay + 10} r={10} fill="#18181b" stroke="#2563eb" strokeWidth={2} />
-                      <line x1={80 + 15} y1={ay + 20} x2={80 + 15} y2={ay + 45} stroke="#2563eb" strokeWidth={2} />
-                      <line x1={80} y1={ay + 28} x2={80 + 30} y2={ay + 28} stroke="#2563eb" strokeWidth={2} />
-                      <line x1={80 + 15} y1={ay + 45} x2={80 + 5} y2={ay + 60} stroke="#2563eb" strokeWidth={2} />
-                      <line x1={80 + 15} y1={ay + 45} x2={80 + 25} y2={ay + 60} stroke="#2563eb" strokeWidth={2} />
-                      <text x={80 + 15} y={ay + 75} textAnchor="middle" fill="#fafafa" className="text-[10px] font-medium select-none">{act.name}</text>
+                      <circle cx={ax + 15} cy={ay + 10} r={10} fill='#18181b' stroke='#2563eb' strokeWidth={2} />
+                      <line x1={ax + 15} y1={ay + 20} x2={ax + 15} y2={ay + 45} stroke='#2563eb' strokeWidth={2} />
+                      <line x1={ax} y1={ay + 28} x2={ax + 30} y2={ay + 28} stroke='#2563eb' strokeWidth={2} />
+                      <line x1={ax + 15} y1={ay + 45} x2={ax + 5} y2={ay + 60} stroke='#2563eb' strokeWidth={2} />
+                      <line x1={ax + 15} y1={ay + 45} x2={ax + 25} y2={ay + 60} stroke='#2563eb' strokeWidth={2} />
+                      <text x={ax + 15} y={ay + 75} textAnchor='middle' fill='#fafafa' className='text-[10px] font-medium select-none'>{act.name}</text>
                     </g>
                   );
                 })}

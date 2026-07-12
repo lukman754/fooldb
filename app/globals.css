@@ -11,9 +11,17 @@ body {
   color: var(--foreground);
   background: var(--background);
   font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
   margin: 0;
   padding: 0;
+}
+
+/* Ensure all interactive elements inherit the same font */
+button, input, select, textarea {
+  font-family: inherit;
 }
 
 /* Compact scrollbar for scrollable editor panels. */

@@ -1,4 +1,4 @@
-export interface Column {
+﻿export interface Column {
   name: string;
   type: string;
   isNullable: boolean;
@@ -76,6 +76,7 @@ export interface DatabaseSchema {
 
 // UML Use Case Interfaces
 export interface UseCaseActor {
+  side?: 'left' | 'right';
   id: string;
   name: string;
 }
@@ -91,6 +92,7 @@ export interface UseCaseSystem {
 }
 
 export interface UseCaseConnection {
+  label?: string;
   id: string;
   from: string;
   to: string;

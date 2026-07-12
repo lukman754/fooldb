@@ -15,7 +15,7 @@ import { parseUseCase, parseActivity, parseSequence } from '@/lib/parser/umlPars
 import { generateRelationshipVerbs } from '@/lib/ai/geminiClient';
 import { visualSchemaToSql } from '@/lib/parser/visualToSql';
 
-export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual';
+export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual' | 'uml';
 
 // Debounce timer for visual layout — prevents spamming ELK.js on rapid store updates
 let visualLayoutTimer: ReturnType<typeof setTimeout> | null = null;
@@ -65,6 +65,8 @@ interface DbState {
   triggerParse: (mode?: AppMode, code?: string) => Promise<void>;
   setZoom: (zoom: number | ((prev: number) => number)) => void;
   resetZoom: () => void;
+  fitTrigger: number;
+  triggerFit: () => void;
   toggleTableExclusion: (tableName: string) => void;
   clearExcludedTables: () => void;
   setApiKey: (key: string) => void;
@@ -492,7 +494,7 @@ export const useDbStore = create<DbState>((set, get) => {
         visualSchemaActive: true,
       });
       get().triggerVisualLayout();
-    } else if (mode === 'visual') {
+    } else if (mode === 'visual' || mode === 'uml') {
       set({ mode });
       get().triggerVisualLayout();
     } else {
@@ -515,7 +517,7 @@ export const useDbStore = create<DbState>((set, get) => {
 
   triggerParse: async (modeArg, codeArg) => {
     // Visual mode uses triggerVisualLayout instead
-    if ((modeArg ?? get().mode) === 'visual') {
+    if ((modeArg ?? get().mode) === 'visual' || (modeArg ?? get().mode) === 'uml') {
       await get().triggerVisualLayout();
       return;
     }
@@ -609,6 +611,9 @@ export const useDbStore = create<DbState>((set, get) => {
   resetZoom: () => {
     set({ zoom: 1 });
   },
+
+  fitTrigger: 0,
+  triggerFit: () => set((state) => ({ fitTrigger: state.fitTrigger + 1 })),
 
   toggleTableExclusion: (tableName) => {
     const lowerName = tableName.toLowerCase();
@@ -786,3 +791,4 @@ if (typeof window !== 'undefined') {
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });
 }
+

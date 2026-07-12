@@ -1,4 +1,4 @@
-import { UseCaseDiagram } from '@/types';
+﻿import { UseCaseDiagram } from '@/types';
 
 // Helper to escape XML characters
 function escapeXml(unsafe: string): string {
@@ -108,9 +108,13 @@ export function generateUseCaseXml(diagram: UseCaseDiagram): string {
     const sourceId = diagram.actors.some(a => a.id === conn.from) ? `act_${conn.from}` : `uc_${conn.from}`;
     const targetId = diagram.usecases.some(u => u.id === conn.to) ? `uc_${conn.to}` : `act_${conn.to}`;
 
-    const connStyle = 'endArrow=none;html=1;rounded=1;strokeColor=#64748b;strokeWidth=1.5;edgeStyle=orthogonalEdgeStyle;';
+    const hasLabel = conn.label != null;
+    const arrow = hasLabel ? 'endArrow=open;' : 'endArrow=none;';
+    const dashed = hasLabel ? 'dashed=1;' : '';
+    const connStyle = `endArrow=none;html=1;rounded=1;strokeColor=#64748b;strokeWidth=1.5;edgeStyle=orthogonalEdgeStyle;${arrow}${dashed}`;
+    const labelAttr = hasLabel ? ` value="${escapeXml(conn.label || '')}"` : '';
 
-    xml += `        <mxCell id="${connId}" edge="1" parent="1" source="${sourceId}" style="${connStyle}" target="${targetId}">\n`;
+    xml += `        <mxCell id="${connId}" edge="1" parent="1" source="${sourceId}" style="${connStyle}" target="${targetId}"${labelAttr}>\n`;
     xml += '          <mxGeometry relative="1" as="geometry" />\n';
     xml += '        </mxCell>\n';
   }

@@ -15,7 +15,11 @@ import {
   Download, 
   FileJson,
   ChevronDown,
-  Key
+  Key,
+  PanelLeftClose,
+  PanelLeft,
+  LayoutGrid,
+  X,
 } from 'lucide-react';
 
 const SQL_TEMPLATES = [
@@ -224,7 +228,24 @@ AuthAPI -> User : Password Updated Successfully
   }
 ];
 
-export default function Header() {
+// All navigation tabs
+const NAV_TABS: { id: AppMode; label: string; shortLabel: string }[] = [
+  { id: 'visual',         label: 'ERD / LRS Builder', shortLabel: 'Builder' },
+  { id: 'erd',            label: 'Chen ERD',           shortLabel: 'Chen ERD' },
+  { id: 'lrs',            label: 'LRS Schema',         shortLabel: 'LRS' },
+  { id: 'transformation', label: 'ERD ➔ LRS',          shortLabel: 'ERD→LRS' },
+  { id: 'uml',            label: 'UML Builder',        shortLabel: 'UML' },
+  { id: 'usecase',        label: 'Use Case',           shortLabel: 'Use Case' },
+  { id: 'activity',       label: 'Activity',           shortLabel: 'Activity' },
+  { id: 'sequence',       label: 'Sequence',           shortLabel: 'Sequence' },
+];
+
+interface HeaderProps {
+  sidebarOpen: boolean;
+  onToggleSidebar: () => void;
+}
+
+export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
   const mode = useDbStore((state) => state.mode);
   const setMode = useDbStore((state) => state.setMode);
   const setCode = useDbStore((state) => state.setCode);
@@ -242,6 +263,7 @@ export default function Header() {
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
   const [showKeyPopover, setShowKeyPopover] = useState(false);
+  const [showMobileNav, setShowMobileNav] = useState(false);
   const apiKey = useDbStore((state) => state.apiKey);
   const setApiKey = useDbStore((state) => state.setApiKey);
   const initializeStore = useDbStore((state) => state.initializeStore);
@@ -264,12 +286,9 @@ export default function Header() {
       setValidationError('API Key cannot be empty.');
       return;
     }
-    
     setIsValidating(true);
     setValidationError(null);
-    
     const errorMsg = await validateApiKey(tempKey);
-    
     setIsValidating(false);
     if (!errorMsg) {
       setApiKey(tempKey);
@@ -280,14 +299,11 @@ export default function Header() {
     }
   };
 
-  const handleImportClick = () => {
-    fileInputRef.current?.click();
-  };
+  const handleImportClick = () => fileInputRef.current?.click();
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
@@ -321,7 +337,7 @@ export default function Header() {
   let isExportable = false;
   if (mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') {
     isExportable = layout !== null;
-  } else if (mode === 'usecase') {
+  } else if (mode === 'usecase' || mode === 'uml') {
     isExportable = usecaseDiagram !== null;
   } else if (mode === 'activity') {
     isExportable = activityDiagram !== null;
@@ -331,7 +347,6 @@ export default function Header() {
 
   const handleExport = (format: 'drawio' | 'xml' | 'svg' | 'png') => {
     setShowExportMenu(false);
-    
     let xml = '';
     let filenameBase = 'diagram';
 
@@ -359,7 +374,7 @@ export default function Header() {
     } else {
       const svgElement = document.querySelector('#fooldb-svg') as SVGSVGElement;
       if (!svgElement) {
-        alert('Diagram SVG element not found in preview page. Please wait for layout to complete.');
+        alert('Diagram SVG element not found. Please wait for layout to complete.');
         return;
       }
       if (format === 'svg') {
@@ -370,66 +385,140 @@ export default function Header() {
     }
   };
 
+  const showTemplateBtn = mode !== 'transformation' && mode !== 'visual';
+  const showImportBtn = mode !== 'transformation' && mode !== 'visual';
+
   return (
-    <header className="flex h-14 w-full items-center justify-between border-b border-zinc-800 bg-zinc-950 px-6 z-20">
-      {/* Left: Logo */}
-      <div className="flex items-center gap-2.5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 shadow-sm">
-          <Database className="h-5 w-5 text-white" />
+    <header className="flex items-center w-full h-12 border-b border-zinc-800 bg-zinc-950 px-2 z-20 shrink-0 gap-2">
+      
+      {/* Sidebar toggle — always visible */}
+      <button
+        onClick={onToggleSidebar}
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors shrink-0"
+        title={sidebarOpen ? 'Close sidebar' : 'Open sidebar'}
+      >
+        {sidebarOpen
+          ? <PanelLeftClose className="h-4 w-4" />
+          : <PanelLeft className="h-4 w-4" />}
+      </button>
+
+      {/* Logo */}
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600">
+          <Database className="h-4 w-4 text-white" />
         </div>
-        <div className="flex flex-col">
-          <span className="text-sm font-semibold tracking-tight text-zinc-100 flex items-center gap-1.5">
+        <div className="hidden sm:flex flex-col leading-none">
+          <span className="text-xs font-semibold text-zinc-100 flex items-center gap-1">
             FoolDB
-            <span className="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-medium text-zinc-400 border border-zinc-800">
+            <span className="rounded bg-zinc-800 px-1 py-px text-[9px] font-medium text-zinc-400 border border-zinc-700">
               v1.5
             </span>
           </span>
-          <span className="text-[10px] font-medium text-zinc-500">
-            UML & database suite
-          </span>
+          <span className="text-[10px] text-zinc-500">UML &amp; database suite</span>
         </div>
       </div>
 
-      {/* Middle: Mode Tabs */}
-      <div className="hidden lg:flex items-center gap-1 bg-zinc-900/50 p-1 border border-zinc-800 rounded-lg">
-        {[
-          { id: 'visual', label: 'ERD / LRS Builder' },
-          { id: 'erd', label: 'Chen ERD' },
-          { id: 'lrs', label: 'LRS Schema' },
-          { id: 'transformation', label: 'ERD ➔ LRS' },
-          { id: 'usecase', label: 'Use case' },
-          { id: 'activity', label: 'Activity' },
-          { id: 'sequence', label: 'Sequence' },
-        ].map((tab) => {
-          const isActive = mode === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setMode(tab.id as AppMode)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-                isActive
-                  ? 'bg-zinc-800 text-zinc-100 border border-zinc-700'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60 border border-transparent'
-              }`}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
+      {/* Divider */}
+      <div className="w-px h-6 bg-zinc-800 shrink-0" />
+
+      {/* Mode Tabs — desktop: scrollable strip | mobile: hidden (use right drawer) */}
+      <nav className="hidden md:flex flex-1 min-w-0 overflow-hidden">
+        <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-minimal py-0.5">
+          {NAV_TABS.map((tab) => {
+            const isActive = mode === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setMode(tab.id)}
+                className={`px-2.5 py-1.5 rounded text-xs font-medium transition-all shrink-0 whitespace-nowrap ${
+                  isActive
+                    ? 'bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 border border-transparent'
+                }`}
+              >
+                <span className="hidden lg:inline">{tab.label}</span>
+                <span className="lg:hidden">{tab.shortLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* Mobile: active mode badge (spacer) */}
+      <div className="md:hidden flex-1 min-w-0 flex items-center px-1">
+        <span className="text-xs font-medium text-zinc-400 truncate">
+          {NAV_TABS.find(t => t.id === mode)?.label ?? mode}
+        </span>
       </div>
 
-      {/* Right: Controls */}
-      <div className="flex items-center gap-3">
+      {/* Divider */}
+      <div className="w-px h-6 bg-zinc-800 shrink-0" />
+
+      {/* Mobile: nav drawer trigger */}
+      <button
+        onClick={() => setShowMobileNav(true)}
+        className="md:hidden flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors shrink-0"
+        title="Switch mode"
+      >
+        <LayoutGrid className="h-4 w-4" />
+      </button>
+
+      {/* Mobile nav drawer — right side */}
+      {showMobileNav && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            onClick={() => setShowMobileNav(false)}
+          />
+          {/* Drawer panel */}
+          <div className="fixed right-0 top-0 h-full w-64 z-50 bg-zinc-950 border-l border-zinc-800 flex flex-col shadow-2xl md:hidden">
+            {/* Drawer header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">Switch Mode</span>
+              <button
+                onClick={() => setShowMobileNav(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            {/* Tab list */}
+            <div className="flex flex-col gap-0.5 p-2 overflow-y-auto scrollbar-minimal flex-1">
+              {NAV_TABS.map((tab) => {
+                const isActive = mode === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => { setMode(tab.id); setShowMobileNav(false); }}
+                    className={`w-full text-left px-3 py-2.5 rounded-md text-xs font-medium transition-all ${
+                      isActive
+                        ? 'bg-zinc-800 text-zinc-100 border border-zinc-700'
+                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border border-transparent'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Right Controls */}
+      <div className="flex items-center gap-1.5 shrink-0">
+
         {/* Templates Dropdown */}
-        {mode !== 'transformation' && mode !== 'visual' && (
+        {showTemplateBtn && (
           <div className="relative">
             <button
               onClick={() => setShowTemplateMenu(!showTemplateMenu)}
-              className="flex h-9 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900/60 px-3 text-xs font-medium text-zinc-300 transition hover:bg-zinc-850 hover:text-zinc-100"
+              className="flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2.5 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200 whitespace-nowrap"
             >
-              <FileJson className="h-3.5 w-3.5 text-blue-500" />
-              <span>Templates</span>
-              <ChevronDown className="h-3 w-3 text-zinc-400" />
+              <FileJson className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+              <span className="hidden sm:inline">Templates</span>
+              <ChevronDown className="h-3 w-3 text-zinc-500" />
             </button>
             
             {showTemplateMenu && (
@@ -438,15 +527,15 @@ export default function Header() {
                   className="fixed inset-0 z-20" 
                   onClick={() => setShowTemplateMenu(false)}
                 />
-                <div className="absolute right-0 mt-1.5 w-56 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-md z-30 animate-in fade-in slide-in-from-top-1 duration-100">
-                  <div className="px-2.5 py-1 text-[10px] font-medium text-zinc-500">
+                <div className="absolute right-0 mt-1.5 w-56 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-xl z-30">
+                  <div className="px-2.5 py-1.5 text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
                     {templateLabel}
                   </div>
                   {activeTemplates.map((tmpl) => (
                     <button
                       key={tmpl.name}
                       onClick={() => selectTemplate(tmpl.code)}
-                      className="w-full text-left rounded-md px-2.5 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
+                      className="w-full text-left rounded-md px-2.5 py-2 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
                     >
                       {tmpl.name}
                     </button>
@@ -457,14 +546,14 @@ export default function Header() {
           </div>
         )}
 
-        {/* Import Code Button */}
-        {mode !== 'transformation' && mode !== 'visual' && (
+        {/* Import Button */}
+        {showImportBtn && (
           <button
             onClick={handleImportClick}
-            className="flex h-9 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-3 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
+            className="flex h-8 items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2.5 text-xs font-medium text-zinc-400 transition hover:bg-zinc-800 hover:text-zinc-200 whitespace-nowrap"
           >
-            <Upload className="h-3.5 w-3.5 text-zinc-400" />
-            <span>Import</span>
+            <Upload className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">Import</span>
           </button>
         )}
         <input
@@ -480,9 +569,9 @@ export default function Header() {
           <button
             onClick={() => setShowExportMenu(!showExportMenu)}
             disabled={!isExportable}
-            className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-3.5 text-xs font-medium text-white transition hover:bg-blue-500 disabled:bg-zinc-900 disabled:text-zinc-500 disabled:border disabled:border-zinc-800"
+            className="flex h-8 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-xs font-medium text-white transition hover:bg-blue-500 whitespace-nowrap disabled:bg-zinc-900 disabled:text-zinc-500 disabled:border disabled:border-zinc-800"
           >
-            <Download className="h-3.5 w-3.5" />
+            <Download className="h-3.5 w-3.5 shrink-0" />
             <span>Export</span>
             <ChevronDown className="h-3 w-3 opacity-80" />
           </button>
@@ -493,37 +582,37 @@ export default function Header() {
                 className="fixed inset-0 z-20" 
                 onClick={() => setShowExportMenu(false)}
               />
-              <div className="absolute right-0 mt-1.5 w-48 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-md z-30 animate-in fade-in slide-in-from-top-1 duration-100">
-                <div className="px-2.5 py-1 text-[10px] font-medium text-zinc-500">
-                  Save diagram to
+              <div className="absolute right-0 mt-1.5 w-48 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-xl z-30">
+                <div className="px-2.5 py-1.5 text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Save diagram as
                 </div>
                 <button
                   onClick={() => handleExport('drawio')}
-                  className="w-full text-left rounded-md px-2.5 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100 flex flex-col"
+                  className="w-full text-left rounded-md px-2.5 py-2 text-xs transition hover:bg-zinc-800 flex flex-col gap-0.5"
                 >
                   <span className="font-medium text-zinc-200">Draw.io XML (.drawio)</span>
                   <span className="text-[10px] text-zinc-500">Best for diagrams.net import</span>
                 </button>
                 <button
                   onClick={() => handleExport('xml')}
-                  className="w-full text-left rounded-md px-2.5 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100 flex flex-col"
+                  className="w-full text-left rounded-md px-2.5 py-2 text-xs transition hover:bg-zinc-800 flex flex-col gap-0.5"
                 >
                   <span className="font-medium text-zinc-200">Standard XML (.xml)</span>
                   <span className="text-[10px] text-zinc-500">Raw schema compatible XML</span>
                 </button>
                 <div className="h-px bg-zinc-800 my-1" />
-                <div className="px-2.5 py-1 text-[10px] font-medium text-zinc-500">
-                  Image formats
+                <div className="px-2.5 py-1.5 text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
+                  Image
                 </div>
                 <button
                   onClick={() => handleExport('svg')}
-                  className="w-full text-left rounded-md px-2.5 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
+                  className="w-full text-left rounded-md px-2.5 py-2 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
                 >
                   Export Vector SVG
                 </button>
                 <button
                   onClick={() => handleExport('png')}
-                  className="w-full text-left rounded-md px-2.5 py-1.5 text-xs text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
+                  className="w-full text-left rounded-md px-2.5 py-2 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
                 >
                   Export Raster PNG
                 </button>
@@ -532,7 +621,7 @@ export default function Header() {
           )}
         </div>
 
-        {/* Gemini API Key Popover Settings */}
+        {/* Gemini API Key */}
         <div className="relative">
           <button
             onClick={() => {
@@ -540,14 +629,14 @@ export default function Header() {
               setValidationError(null);
               setShowKeyPopover(!showKeyPopover);
             }}
-            className={`flex h-9 w-9 items-center justify-center rounded-md border transition ${
+            className={`flex h-8 w-8 items-center justify-center rounded-md border transition shrink-0 ${
               mounted && apiKey !== ''
                 ? 'border-green-600/30 bg-green-950/20 text-green-500'
-                : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+                : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
             }`}
-            title="Set Gemini API Key for Auto-Labeling"
+            title="Set Gemini API Key for AI auto-labeling"
           >
-            <Key className="h-4 w-4" />
+            <Key className="h-3.5 w-3.5" />
           </button>
 
           {showKeyPopover && (
@@ -556,11 +645,11 @@ export default function Header() {
                 className="fixed inset-0 z-20" 
                 onClick={() => setShowKeyPopover(false)}
               />
-              <div className="absolute right-0 mt-1.5 w-72 rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-md z-30 animate-in fade-in slide-in-from-top-1 duration-100 flex flex-col gap-3">
+              <div className="absolute right-0 mt-1.5 w-72 rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-xl z-30 flex flex-col gap-3">
                 <div className="flex flex-col gap-1">
-                  <h4 className="text-xs font-bold text-zinc-200 uppercase tracking-wider">Gemini API Key</h4>
+                  <h4 className="text-xs font-semibold text-zinc-200">Gemini API Key</h4>
                   <p className="text-[10px] text-zinc-500 leading-relaxed">
-                    Required for AI relationship analysis. The key is saved locally in your browser cache.
+                    Required for AI relationship analysis. Saved locally in your browser.
                   </p>
                 </div>
                 <input
@@ -569,28 +658,28 @@ export default function Header() {
                   disabled={isValidating}
                   onChange={(e) => setTempKey(e.target.value)}
                   placeholder="Paste your Gemini API Key..."
-                  className="w-full rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono disabled:opacity-50"
+                  className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 font-mono disabled:opacity-50"
                 />
                 
                 {validationError && (
-                  <p className="text-[10px] text-red-500 font-bold leading-tight bg-red-950/20 border border-red-900/30 rounded p-1.5">
+                  <p className="text-[10px] text-red-400 bg-red-950/20 border border-red-900/30 rounded p-2 leading-tight">
                     {validationError}
                   </p>
                 )}
 
-                <div className="flex items-center justify-between mt-1">
+                <div className="flex items-center justify-between">
                   <a
                     href="https://aistudio.google.com/"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-[10px] text-blue-500 hover:text-blue-400 hover:underline font-semibold"
+                    className="text-[10px] text-blue-500 hover:text-blue-400 hover:underline font-medium"
                   >
-                    Get free key
+                    Get free key →
                   </a>
                   <button
                     onClick={handleSaveKey}
                     disabled={isValidating}
-                    className="rounded bg-blue-600 px-3 py-1 text-xs font-bold text-white hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isValidating ? 'Validating...' : 'Save Key'}
                   </button>
