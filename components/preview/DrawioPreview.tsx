@@ -4,7 +4,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useDbStore } from '@/store/dbStore';
 import { getRelationshipLabel } from '@/lib/xml/drawioGenerator';
 import { Column } from '@/types';
-import { ZoomIn, ZoomOut, Maximize2, RotateCcw, RefreshCw, Filter, Sparkles, Sliders } from 'lucide-react';
+import { ChevronDown, RefreshCw, Filter, Sparkles, Sliders } from 'lucide-react';
 
 export default function DrawioPreview() {
   const mode = useDbStore((state) => state.mode);
@@ -35,11 +35,21 @@ export default function DrawioPreview() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const panStartRef = useRef({ x: 0, y: 0 });
+  const gestureRef = useRef({
+    mode: null as "pan" | "pinch" | null,
+    startZoom: 1,
+    startPan: { x: 0, y: 0 },
+    startDistance: 0,
+    startCenter: { x: 0, y: 0 },
+  });
 
   // Dragging and positioning states for attributes
   const [draggingAttr, setDraggingAttr] = useState<{ tableName: string; colName: string } | null>(null);
   const [selectedAttr, setSelectedAttr] = useState<{ tableName: string; colName: string } | null>(null);
+  const [selectedEntityName, setSelectedEntityName] = useState<string | null>(null);
+  const [showAttrControls, setShowAttrControls] = useState(false);
   
   const attrPositions = useDbStore((state) => state.attrPositions);
   const setAttrPosition = useDbStore((state) => state.setAttrPosition);
@@ -48,6 +58,61 @@ export default function DrawioPreview() {
   const resetAllAttrPositions = useDbStore((state) => state.resetAllAttrPositions);
   const relNotation = useDbStore((state) => state.relNotation);
   const setRelNotation = useDbStore((state) => state.setRelNotation);
+
+  const selectedEntityNode = layout?.nodes.find((node) => node.table.name === selectedEntityName) ?? null;
+  const selectedEntityTable = selectedEntityNode?.table ?? null;
+  const selectedEntityEdges = selectedEntityName
+    ? layout?.edges.filter(
+        (edge) => edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName,
+      ) ?? []
+    : [];
+  const selectedEntityRelations = selectedEntityName
+    ? selectedEntityEdges.map((edge) => {
+        const rel = edge.relationship;
+        const isSource = rel.sourceTable === selectedEntityName;
+        const otherTable = isSource ? rel.targetTable : rel.sourceTable;
+        const verb = rel.verb || getRelationshipLabel(rel.sourceTable, rel.targetTable);
+        const sourceCardinality = rel.sourceCardinality ?? 'one';
+        const targetCardinality = rel.targetCardinality ?? (rel.type === '1:1' ? 'one' : 'many');
+        const cardinality = `${sourceCardinality === 'many' ? 'M' : '1'}:${targetCardinality === 'many' ? 'M' : '1'}`;
+        return { edgeId: edge.id, otherTable, verb, cardinality };
+      })
+    : [];
+  const selectedAttrMeta = selectedAttr && layout
+    ? (() => {
+        const node = layout.nodes.find((n) => n.table.name === selectedAttr.tableName);
+        if (!node) return null;
+        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+        if (idx < 0) return null;
+        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
+        const defaultRadius = 85 + node.table.columns.length * 5;
+        const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
+        let deg = Math.round((pos.angle * 180) / Math.PI);
+        if (deg < 0) deg += 360;
+        return { key, node, pos, deg, radiusVal: Math.round(pos.radius) };
+      })()
+    : null;
+
+  useEffect(() => {
+    if (selectedAttr) setShowAttrControls(true);
+  }, [selectedAttr]);
+
+  const focusEntityOnCanvas = (tableName: string) => {
+    setSelectedEntityName(tableName);
+
+    const node = layout?.nodes.find((n) => n.table.name === tableName);
+    if (!node || !containerRef.current) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const centerX = node.x + node.width / 2;
+    const centerY = node.y + node.height / 2;
+
+    setPan({
+      x: rect.width / 2 - centerX * zoom,
+      y: rect.height / 2 - centerY * zoom,
+    });
+  };
 
   // Determine dynamic canvas size based on active diagram data
   let canvasWidth = 800;
@@ -109,45 +174,120 @@ export default function DrawioPreview() {
     setZoom(newZoom);
   }, [layout, usecaseDiagram, activityDiagram, sequenceDiagram, mode, hasDiagramData, canvasWidth, canvasHeight, setZoom]);
 
-  // Pan interaction handlers
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return; // Only left click drag pans
-    setIsPanning(true);
-    setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-    setSelectedAttr(null); // Clear active attribute selection on canvas background click
+  const updateDraggingAttribute = (clientX: number, clientY: number) => {
+    if (!containerRef.current || !layout || !draggingAttr) return;
+
+    const rect = containerRef.current.getBoundingClientRect();
+    const mouseX = (clientX - rect.left - pan.x) / zoom;
+    const mouseY = (clientY - rect.top - pan.y) / zoom;
+
+    const node = layout.nodes.find((n) => n.table.name === draggingAttr.tableName);
+    if (!node) return;
+
+    const cx = node.x + node.width / 2;
+    const cy = node.y + node.height / 2;
+    const dx = mouseX - cx;
+    const dy = mouseY - cy;
+    const radius = Math.max(50, Math.min(350, Math.sqrt(dx * dx + dy * dy)));
+    const angle = Math.atan2(dy, dx);
+
+    setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, { angle, radius });
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const startPinchGesture = () => {
+    if (!containerRef.current) return;
+
+    const points = Array.from(activePointersRef.current.values());
+    if (points.length < 2) return;
+
+    const [first, second] = points;
+    gestureRef.current.mode = "pinch";
+    gestureRef.current.startZoom = zoom;
+    gestureRef.current.startPan = { ...pan };
+    gestureRef.current.startDistance = Math.max(Math.hypot(first.x - second.x, first.y - second.y), 1);
+    gestureRef.current.startCenter = {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+    };
+    setIsPanning(false);
+  };
+
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== undefined && e.button !== 0) return;
+
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-canvas-interactive="true"]')) return;
+
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    gestureRef.current.mode = "pan";
+    panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    setIsPanning(true);
+    setSelectedAttr(null);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+
+    if (activePointersRef.current.size >= 2) startPinchGesture();
+  };
+
+  const handleCanvasPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    activePointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
     if (draggingAttr) {
-      if (!containerRef.current || !layout) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const mouseX = (e.clientX - rect.left - pan.x) / zoom;
-      const mouseY = (e.clientY - rect.top - pan.y) / zoom;
-
-      const node = layout.nodes.find((n) => n.table.name === draggingAttr.tableName);
-      if (node) {
-        const cx = node.x + node.width / 2;
-        const cy = node.y + node.height / 2;
-        const dx = mouseX - cx;
-        const dy = mouseY - cy;
-        const radius = Math.max(50, Math.min(350, Math.sqrt(dx * dx + dy * dy)));
-        const angle = Math.atan2(dy, dx);
-
-        setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, { angle, radius });
-      }
+      updateDraggingAttribute(e.clientX, e.clientY);
       return;
     }
 
-    if (!isPanning) return;
+    if (activePointersRef.current.size >= 2) {
+      if (gestureRef.current.mode !== "pinch") startPinchGesture();
+
+      const points = Array.from(activePointersRef.current.values());
+      if (points.length < 2 || !containerRef.current) return;
+
+      const [first, second] = points;
+      const currentCenter = {
+        x: (first.x + second.x) / 2,
+        y: (first.y + second.y) / 2,
+      };
+      const currentDistance = Math.max(Math.hypot(first.x - second.x, first.y - second.y), 1);
+      const nextZoom = Math.max(0.1, Math.min(3, gestureRef.current.startZoom * (currentDistance / gestureRef.current.startDistance)));
+
+      const rect = containerRef.current.getBoundingClientRect();
+      const anchorX = gestureRef.current.startCenter.x - rect.left;
+      const anchorY = gestureRef.current.startCenter.y - rect.top;
+      const worldX = (anchorX - gestureRef.current.startPan.x) / gestureRef.current.startZoom;
+      const worldY = (anchorY - gestureRef.current.startPan.y) / gestureRef.current.startZoom;
+
+      setZoom(nextZoom);
+      setPan({
+        x: currentCenter.x - rect.left - worldX * nextZoom,
+        y: currentCenter.y - rect.top - worldY * nextZoom,
+      });
+      setIsPanning(false);
+      return;
+    }
+
+    if (gestureRef.current.mode !== "pan") return;
     setPan({
-      x: e.clientX - panStart.x,
-      y: e.clientY - panStart.y,
+      x: e.clientX - panStartRef.current.x,
+      y: e.clientY - panStartRef.current.y,
     });
   };
 
-  const handleMouseUp = () => {
-    setIsPanning(false);
-    setDraggingAttr(null);
+  const endCanvasPointer = (pointerId: number) => {
+    activePointersRef.current.delete(pointerId);
+
+    if (activePointersRef.current.size === 0) {
+      gestureRef.current.mode = null;
+      setIsPanning(false);
+      setDraggingAttr(null);
+      return;
+    }
+
+    if (activePointersRef.current.size === 1) {
+      const [remaining] = Array.from(activePointersRef.current.values());
+      gestureRef.current.mode = "pan";
+      panStartRef.current = { x: remaining.x - pan.x, y: remaining.y - pan.y };
+      setIsPanning(true);
+    }
   };
 
   useEffect(() => {
@@ -202,94 +342,308 @@ export default function DrawioPreview() {
   return (
     <div className="relative flex h-full w-full flex-col bg-zinc-950 select-none">
       {/* 1. Preview Toolbar */}
-      <div className="flex h-10 w-full items-center justify-between border-b border-zinc-800 bg-zinc-950 px-3 shrink-0 gap-2">
-        {/* Left: Mode label + diagram controls */}
-        <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-minimal">
-          <span className="text-xs font-medium text-zinc-500 shrink-0">
-            Mode: <span className="text-blue-400 font-semibold">{mode}</span>
-          </span>
+      <div className="flex flex-col border-b border-zinc-800 bg-zinc-950 shrink-0">
+        <div className="flex h-10 w-full items-center justify-between px-3 gap-2">
+          <div className="flex items-center gap-2 min-w-0 overflow-x-auto scrollbar-minimal">
+            <span className="text-xs font-medium text-zinc-500 shrink-0">
+              Mode: <span className="text-blue-400 font-semibold">{mode}</span>
+            </span>
 
-          {(mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') && (
-            <>
-              <div className="w-px h-4 bg-zinc-800 shrink-0" />
+            {(mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') && (
+              <>
+                <div className="w-px h-4 bg-zinc-800 shrink-0" />
 
-              {/* Filter Tables */}
-              {mode !== 'visual' && (
-                <button
-                  onClick={() => setShowTableFilter(!showTableFilter)}
-                  className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
-                    showTableFilter
-                      ? 'border-blue-600/40 bg-blue-950/30 text-blue-400'
-                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                  }`}
-                  title="Toggle table filter"
-                >
-                  <Filter className="h-3.5 w-3.5 shrink-0" />
-                  <span className="hidden sm:inline">Filter tables</span>
-                  <span className="text-zinc-500 text-[10px]">({schema.tables.length - excludedTables.length}/{schema.tables.length})</span>
-                </button>
-              )}
+                {mode !== 'visual' && (
+                  <button
+                    onClick={() => setShowTableFilter(!showTableFilter)}
+                    className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
+                      showTableFilter
+                        ? 'border-blue-600/40 bg-blue-950/30 text-blue-400'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                    }`}
+                    title="Toggle table filter"
+                  >
+                    <Filter className="h-3.5 w-3.5 shrink-0" />
+                    <span className="hidden sm:inline">Filter tables</span>
+                    <span className="text-zinc-500 text-[10px]">({schema.tables.length - excludedTables.length}/{schema.tables.length})</span>
+                  </button>
+                )}
 
-              {/* Relationship Notation */}
-              <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden shrink-0">
-                <button
-                  onClick={() => setRelNotation('crowsfoot')}
-                  title="Crow's Foot notation"
-                  className={`h-7 px-2.5 text-xs font-medium transition ${
-                    relNotation === 'crowsfoot'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                  }`}
-                >
-                  Crow&apos;s Foot
-                </button>
-                <div className="w-px h-4 bg-zinc-700" />
-                <button
-                  onClick={() => setRelNotation('label')}
-                  title="1:N / M:N label notation"
-                  className={`h-7 px-2.5 text-xs font-medium transition ${
-                    relNotation === 'label'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                  }`}
-                >
-                  1:N
-                </button>
+                <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden shrink-0">
+                  <button
+                    onClick={() => setRelNotation('crowsfoot')}
+                    title="Crow's Foot notation"
+                    className={`h-7 px-2.5 text-xs font-medium transition ${
+                      relNotation === 'crowsfoot'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                    }`}
+                  >
+                    Crow&apos;s Foot
+                  </button>
+                  <div className="w-px h-4 bg-zinc-700" />
+                  <button
+                    onClick={() => setRelNotation('label')}
+                    title="1:N / M:N label notation"
+                    className={`h-7 px-2.5 text-xs font-medium transition ${
+                      relNotation === 'label'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                    }`}
+                  >
+                    1:N
+                  </button>
+                </div>
+
+                {mode !== 'visual' && (
+                  <button
+                    onClick={() => triggerAiLabeling().catch((err) => alert(err.message))}
+                    disabled={isAiLoading}
+                    className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
+                      isAiLoading
+                        ? 'border-blue-600/40 bg-blue-950/30 text-blue-400 cursor-not-allowed'
+                        : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                    }`}
+                    title="Auto-label relationships using Gemini AI"
+                  >
+                    {isAiLoading
+                      ? <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
+                      : <Sparkles className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
+                    <span className="hidden sm:inline">{isAiLoading ? 'Analyzing...' : 'AI Auto-label'}</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          <div className="relative flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowAttrControls((v) => !v)}
+              className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition shrink-0 ${
+                showAttrControls
+                  ? 'border-blue-600/40 bg-blue-950/30 text-blue-400'
+                  : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+              }`}
+              title="Attribute orbit and radius"
+            >
+              <Sliders className="h-3.5 w-3.5 shrink-0" />
+              <span className="normal-case">Orbit / radius</span>
+              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${showAttrControls ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showAttrControls && (
+              <div className="absolute right-0 top-full mt-2 w-[300px] max-w-[calc(100vw-24px)] rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 shadow-2xl z-30">
+                {selectedAttrMeta ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+                      <div className="min-w-0">
+                        <div className="text-[10px] text-zinc-500 normal-case">Attribute</div>
+                        <div className="truncate text-xs font-semibold text-zinc-100 normal-case">{selectedAttr!.colName}</div>
+                      </div>
+                      <button
+                        onClick={() => setShowAttrControls(false)}
+                        className="rounded border border-zinc-800 px-2 py-1 text-[10px] font-medium text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 normal-case"
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-zinc-500 normal-case">Orbit angle</div>
+                        <div className="flex items-center justify-between text-[10px] text-blue-400">
+                          <span className="normal-case">Current</span>
+                          <span className="font-mono">{selectedAttrMeta.deg}°</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="360"
+                          value={selectedAttrMeta.deg}
+                          onChange={(e) => {
+                            const newDeg = parseInt(e.target.value, 10);
+                            const rad = (newDeg * Math.PI) / 180;
+                            setAttrPosition(selectedAttrMeta.key, { ...selectedAttrMeta.pos, angle: rad });
+                          }}
+                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-zinc-500 normal-case">Orbit radius</div>
+                        <div className="flex items-center justify-between text-[10px] text-blue-400">
+                          <span className="normal-case">Current</span>
+                          <span className="font-mono">{selectedAttrMeta.radiusVal}px</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="50"
+                          max="350"
+                          value={selectedAttrMeta.radiusVal}
+                          onChange={(e) => {
+                            const newRad = parseInt(e.target.value, 10);
+                            setAttrPosition(selectedAttrMeta.key, { ...selectedAttrMeta.pos, radius: newRad });
+                          }}
+                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => resetAttrPosition(selectedAttrMeta.key)}
+                        className="flex-1 rounded border border-zinc-800 bg-zinc-950 px-2 py-[5px] text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850 normal-case"
+                      >
+                        Reset attribute
+                      </button>
+                      <button
+                        onClick={() => {
+                          resetTableAttrPositions(
+                            selectedAttr!.tableName,
+                            selectedAttrMeta.node.table.columns.map((c) => c.name),
+                          );
+                        }}
+                        className="flex-1 rounded border border-zinc-800 bg-zinc-950 px-2 py-[5px] text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850 normal-case"
+                      >
+                        Reset table
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-zinc-500 normal-case">
+                    Tap an attribute to edit orbit and radius.
+                  </div>
+                )}
               </div>
-
-              {/* AI Auto-label */}
-              {mode !== 'visual' && (
-                <button
-                  onClick={() => triggerAiLabeling().catch((err) => alert(err.message))}
-                  disabled={isAiLoading}
-                  className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
-                    isAiLoading
-                      ? 'border-blue-600/40 bg-blue-950/30 text-blue-400 cursor-not-allowed'
-                      : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
-                  }`}
-                  title="Auto-label relationships using Gemini AI"
-                >
-                  {isAiLoading
-                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
-                    : <Sparkles className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
-                  <span className="hidden sm:inline">{isAiLoading ? 'Analyzing...' : 'AI Auto-label'}</span>
-                </button>
-              )}
-            </>
-          )}
+            )}
+          </div>
         </div>
+
+        {(mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') && (
+          <div className="hidden min-h-12 items-center justify-between gap-3 border-t border-zinc-800 px-3 py-2 overflow-x-auto scrollbar-minimal">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 shrink-0">
+                Mode detail
+              </span>
+              <span className="text-xs text-zinc-300 shrink-0">
+                {selectedEntityName ? `Entity: ${selectedEntityName}` : 'Tap an entity to inspect it'}
+              </span>
+              {selectedEntityTable && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] text-zinc-400 shrink-0">
+                  <span>{selectedEntityTable.columns.length} cols</span>
+                  <span className="text-zinc-600">•</span>
+                  <span>{selectedEntityEdges.length} rels</span>
+                </span>
+              )}
+            </div>
+
+            {selectedAttr ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 shrink-0">
+                  Attribute Orbit & Radius
+                </span>
+                <div className="flex min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5">
+                  <div className="min-w-[120px]">
+                    <div className="text-[10px] text-zinc-500 font-mono">Attribute</div>
+                    <div className="text-[11px] font-semibold text-blue-400 truncate">{selectedAttr.colName}</div>
+                  </div>
+                  <div className="w-px h-8 bg-zinc-800 shrink-0" />
+                  <div className="flex flex-col gap-1 min-w-[180px]">
+                    <div className="flex justify-between text-[10px] font-medium">
+                      <span className="text-zinc-400">Orbit</span>
+                      <span className="text-blue-400 font-mono">{Math.round(((() => {
+                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        if (!node) return 0;
+                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+                        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
+                        const pos = attrPositions[key] || { angle: defaultAngle, radius: 85 + node.table.columns.length * 5 };
+                        let deg = Math.round((pos.angle * 180) / Math.PI);
+                        if (deg < 0) deg += 360;
+                        return deg;
+                      })()))}°</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      value={(() => {
+                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        if (!node) return 0;
+                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+                        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
+                        const pos = attrPositions[key] || { angle: defaultAngle, radius: 85 + node.table.columns.length * 5 };
+                        let deg = Math.round((pos.angle * 180) / Math.PI);
+                        if (deg < 0) deg += 360;
+                        return deg;
+                      })()}
+                      onChange={(e) => {
+                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        if (!node) return;
+                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+                        const defaultRadius = 85 + node.table.columns.length * 5;
+                        const current = attrPositions[key] || { angle: (2 * Math.PI * idx) / node.table.columns.length, radius: defaultRadius };
+                        const newDeg = parseInt(e.target.value, 10);
+                        const rad = (newDeg * Math.PI) / 180;
+                        setAttrPosition(key, { ...current, angle: rad });
+                      }}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1 min-w-[180px]">
+                    <div className="flex justify-between text-[10px] font-medium">
+                      <span className="text-zinc-400">Radius</span>
+                      <span className="text-blue-400 font-mono">{(() => {
+                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        if (!node) return 0;
+                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+                        const defaultRadius = 85 + node.table.columns.length * 5;
+                        const pos = attrPositions[key] || { angle: (2 * Math.PI * idx) / node.table.columns.length, radius: defaultRadius };
+                        return Math.round(pos.radius);
+                      })()}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="50"
+                      max="350"
+                      value={(() => {
+                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        if (!node) return 0;
+                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+                        const defaultRadius = 85 + node.table.columns.length * 5;
+                        const pos = attrPositions[key] || { angle: (2 * Math.PI * idx) / node.table.columns.length, radius: defaultRadius };
+                        return Math.round(pos.radius);
+                      })()}
+                      onChange={(e) => {
+                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        if (!node) return;
+                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+                        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
+                        const current = attrPositions[key] || { angle: defaultAngle, radius: 85 + node.table.columns.length * 5 };
+                        const newRad = parseInt(e.target.value, 10);
+                        setAttrPosition(key, { ...current, radius: newRad });
+                      }}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <span className="text-[10px] text-zinc-500">Tap an attribute to edit orbit and radius.</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 2. Main Render Canvas Area */}
       <div
         ref={containerRef}
-        className={`flex-1 w-full h-full outline-none overflow-hidden relative ${
-          isPanning ? 'cursor-grabbing' : 'cursor-grab'
-        }`}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        className="flex-1 w-full h-full outline-none overflow-hidden relative"
       >
         {error && (
           <div className="absolute inset-x-4 top-4 bg-red-950/70 border border-red-900 text-red-200 p-4 rounded-lg z-20 flex flex-col gap-1">
@@ -299,7 +653,7 @@ export default function DrawioPreview() {
         )}
 
         {showTableFilter && (mode === 'erd' || mode === 'lrs' || mode === 'transformation') && (
-          <div className="absolute left-6 top-6 bottom-6 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none max-h-[85%]">
+          <div className="absolute left-6 top-6 bottom-6 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none max-h-[85%] touch-auto" data-canvas-interactive="true" onPointerDown={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
               <div className="flex items-center gap-1.5">
                 <Filter className="h-4 w-4 text-blue-500" />
@@ -351,10 +705,105 @@ export default function DrawioPreview() {
           </div>
         )}
 
-        {selectedAttr && (
+        {selectedEntityName && selectedEntityTable && (
           <div
-            className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none"
-            onMouseDown={(e) => e.stopPropagation()}
+            className="absolute right-4 top-4 z-40 w-fit min-w-[18rem] max-w-[calc(100vw-24px)] rounded-xl border border-zinc-800 bg-zinc-900/95 p-3 shadow-2xl backdrop-blur-sm select-none"
+            data-canvas-interactive="true"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-zinc-100 normal-case">Entity info</div>
+                <div className="truncate text-sm font-semibold text-zinc-100">{selectedEntityName}</div>
+              </div>
+              <button
+                onClick={() => setSelectedEntityName(null)}
+                className="rounded border border-zinc-800 px-2 py-1 text-[10px] font-semibold text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5">
+                <div className="text-zinc-500">Columns</div>
+                <div className="font-semibold text-zinc-100">{selectedEntityTable.columns.length}</div>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5">
+                <div className="text-zinc-500">PK</div>
+                <div className="font-semibold text-blue-400">{selectedEntityTable.primaryKey.length}</div>
+              </div>
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5">
+                <div className="text-zinc-500">FK</div>
+                <div className="font-semibold text-violet-400">{selectedEntityTable.foreignKeys.length}</div>
+              </div>
+            </div>
+
+            <div className="mt-2">
+              <div className="text-[10px] text-zinc-500 normal-case">Related tables</div>
+              <div className="mt-1">
+                {selectedEntityRelations.length > 0 ? (
+                  <ul className="space-y-1 text-[10px] text-zinc-300">
+                    {selectedEntityRelations.map((rel) => (
+                      <li key={rel.edgeId} className="flex items-start gap-1.5 leading-relaxed whitespace-nowrap">
+                        <span className="text-zinc-500">-</span>
+                        <span className="min-w-0">
+                          <span className="text-zinc-200">{rel.verb}</span>
+                          <span className="text-blue-400"> {rel.cardinality}</span>
+                          <span className="text-zinc-500"> - </span>
+                          <button
+                            type="button"
+                            onClick={() => focusEntityOnCanvas(rel.otherTable)}
+                            className="inline-flex items-center gap-1 text-blue-400 hover:text-blue-300 hover:underline underline-offset-2 decoration-transparent hover:decoration-current transition-colors align-baseline"
+                            title={`Focus ${rel.otherTable}`}
+                          >
+                            <span>{rel.otherTable}</span>
+                            <span aria-hidden="true" className="text-blue-500">↗</span>
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <span className="text-[10px] text-zinc-500">No relations</span>
+                )}
+              </div>
+            </div>
+
+            {selectedEntityTable.comment && (
+              <div className="mt-2 rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-[10px] text-zinc-400">
+                {selectedEntityTable.comment}
+              </div>
+            )}
+
+            <div className="mt-2">
+              <div className="text-[10px] text-zinc-500 normal-case">Columns</div>
+              <div className="scrollbar-mini mt-1 max-h-28 space-y-1 overflow-y-auto pr-1">
+                {selectedEntityTable.columns.map((col) => {
+                  const isPk = selectedEntityTable.primaryKey.includes(col.name);
+                  const isFk = selectedEntityTable.foreignKeys.some((fk) =>
+                    fk.columns.map((c) => c.toLowerCase()).includes(col.name.toLowerCase()),
+                  );
+                  return (
+                    <div key={col.name} className="flex items-center justify-between gap-2 text-[10px] leading-relaxed">
+                      <span className="min-w-0 truncate text-zinc-200 normal-case">{col.name}</span>
+                      <span className="ml-2 flex items-center gap-1 shrink-0">
+                        {isPk && <span className="rounded border border-blue-500/30 px-1 py-0.5 text-blue-400">PK</span>}
+                        {isFk && <span className="rounded border border-amber-500/30 px-1 py-0.5 text-amber-300">FK</span>}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {false && selectedAttr && (
+          <div
+            className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none touch-auto"
+            data-canvas-interactive="true"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
@@ -372,21 +821,22 @@ export default function DrawioPreview() {
 
             <div className="space-y-1">
               <div className="text-[10px] text-zinc-500 font-mono">Table</div>
-              <div className="text-xs font-semibold text-zinc-200 truncate">{selectedAttr.tableName}</div>
+              <div className="text-xs font-semibold text-zinc-200 truncate">{selectedAttr!.tableName}</div>
             </div>
 
             <div className="space-y-1">
               <div className="text-[10px] text-zinc-500 font-mono">Attribute</div>
-              <div className="text-xs font-semibold text-blue-450 truncate">{selectedAttr.colName}</div>
+              <div className="text-xs font-semibold text-blue-450 truncate">{selectedAttr!.colName}</div>
             </div>
 
             {/* Sliders */}
             {(() => {
-              const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-              const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+              if (!selectedAttr) return null;
+              const key = `${selectedAttr!.tableName}-${selectedAttr!.colName}`;
+              const node = layout?.nodes.find((n) => n.table.name === selectedAttr!.tableName);
               if (!node) return null;
-              const N = node.table.columns.length;
-              const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
+              const N = node!.table.columns.length;
+              const idx = node!.table.columns.findIndex((c) => c.name === selectedAttr!.colName);
               const defaultAngle = (2 * Math.PI * idx) / N;
               const defaultRadius = 85 + N * 5;
 
@@ -453,8 +903,8 @@ export default function DrawioPreview() {
                       <button
                         onClick={() => {
                           resetTableAttrPositions(
-                            selectedAttr.tableName,
-                            node.table.columns.map((c) => c.name)
+                            selectedAttr!.tableName,
+                            node!.table.columns.map((c) => c.name)
                           );
                         }}
                         className="flex-1 py-1.5 text-center text-[10px] font-semibold text-zinc-400 bg-zinc-950 border border-zinc-800 rounded hover:bg-zinc-850 hover:text-zinc-200 transition"
@@ -479,16 +929,57 @@ export default function DrawioPreview() {
           </div>
         )}
 
+        <div
+          className={`absolute inset-0 z-0 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} touch-none overscroll-none`}
+          style={{
+            touchAction: 'none',
+            overscrollBehavior: 'none',
+          }}
+          onPointerDown={handleCanvasPointerDown}
+          onPointerMove={handleCanvasPointerMove}
+          onPointerUp={(e) => endCanvasPointer(e.pointerId)}
+          onPointerCancel={(e) => endCanvasPointer(e.pointerId)}
+          onPointerLeave={(e) => {
+            if (e.buttons === 0) endCanvasPointer(e.pointerId);
+          }}
+        >
+          <div
+            aria-hidden="true"
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage: [
+                'linear-gradient(to right, rgba(63, 63, 70, 0.42) 1px, transparent 1px)',
+                'linear-gradient(to bottom, rgba(63, 63, 70, 0.42) 1px, transparent 1px)',
+                'linear-gradient(to right, rgba(39, 39, 42, 0.55) 1px, transparent 1px)',
+                'linear-gradient(to bottom, rgba(39, 39, 42, 0.55) 1px, transparent 1px)',
+              ].join(', '),
+              backgroundSize: [
+                `${Math.max(16, 24 * zoom)}px ${Math.max(16, 24 * zoom)}px`,
+                `${Math.max(16, 24 * zoom)}px ${Math.max(16, 24 * zoom)}px`,
+                `${Math.max(64, 96 * zoom)}px ${Math.max(64, 96 * zoom)}px`,
+                `${Math.max(64, 96 * zoom)}px ${Math.max(64, 96 * zoom)}px`,
+              ].join(', '),
+              backgroundPosition: [
+                `${((pan.x % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px ${((pan.y % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px`,
+                `${((pan.x % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px ${((pan.y % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px`,
+                `${((pan.x % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px ${((pan.y % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px`,
+                `${((pan.x % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px ${((pan.y % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px`,
+              ].join(', '),
+              opacity: 0.55,
+            }}
+          />
+
         {hasDiagramData ? (
           <svg
             id="fooldb-svg"
             width={canvasWidth}
             height={canvasHeight}
-            style={{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-              transformOrigin: '0 0',
-              transition: isPanning ? 'none' : 'transform 0.1s ease-out',
-            }}
+              style={{
+                transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                transformOrigin: '0 0',
+                transition: isPanning ? 'none' : 'transform 0.02s linear',
+                willChange: 'transform',
+              }}
             className="absolute shadow-2xl"
           >
             {/* SVG Markers / Arrowdefs */}
@@ -642,11 +1133,26 @@ export default function DrawioPreview() {
                   {layout.edges.map(edge => {
                     const dm = diamondMap.get(edge.id)!;
                     const { d1, d2 } = getSplitPaths(edge.points, 0.5, dm);
+                    const isEdgeFocused = selectedEntityName
+                      ? edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName
+                      : false;
 
                     return (
                       <g key={`lines_${edge.id}`}>
-                        <path d={d1} fill="none" stroke="#2563eb" strokeWidth={1.5} />
-                        <path d={d2} fill="none" stroke="#2563eb" strokeWidth={1.5} />
+                        <path
+                          d={d1}
+                          fill="none"
+                          stroke={isEdgeFocused ? '#60a5fa' : '#2563eb'}
+                          strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                          className={isEdgeFocused ? 'diagram-rel-line diagram-rel-line--active' : 'diagram-rel-line'}
+                        />
+                        <path
+                          d={d2}
+                          fill="none"
+                          stroke={isEdgeFocused ? '#60a5fa' : '#2563eb'}
+                          strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                          className={isEdgeFocused ? 'diagram-rel-line diagram-rel-line--active' : 'diagram-rel-line'}
+                        />
                       </g>
                     );
                   })}
@@ -657,6 +1163,10 @@ export default function DrawioPreview() {
                     const cx = node.x + node.width / 2;
                     const cy = node.y + node.height / 2;
                     const N = table.columns.length;
+                    const isEntitySelected = selectedEntityName === table.name;
+                    const foreignKeyColumns = new Set(
+                      table.foreignKeys.flatMap((fk) => fk.columns.map((c) => c.toLowerCase())),
+                    );
 
                     const attrs = table.columns.map((col, idx) => {
                       const key = `${table.name}-${col.name}`;
@@ -679,7 +1189,11 @@ export default function DrawioPreview() {
                       ? attrs.find(a => a.col.name === selectedAttr.colName) : null;
 
                     return (
-                      <g key={node.id}>
+                      <g
+                        key={node.id}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={() => setSelectedEntityName((current) => (current === table.name ? null : table.name))}
+                      >
                         {selectedAttrInTable && (
                           <circle cx={cx} cy={cy} r={selectedAttrInTable.radius}
                             fill="none" stroke="#2563eb" strokeWidth={1}
@@ -697,19 +1211,26 @@ export default function DrawioPreview() {
 
                         {attrs.map((item) => {
                           const isSelected = selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name;
+                          const isForeignKey = foreignKeyColumns.has(item.col.name.toLowerCase());
+                          const highlightFk = isEntitySelected && isForeignKey;
                           return (
                             <g key={`attr_g_${item.col.name}`}
                               className="cursor-move group select-none origin-center"
-                              onMouseDown={(e) => { e.stopPropagation(); setDraggingAttr({ tableName: table.name, colName: item.col.name }); setSelectedAttr({ tableName: table.name, colName: item.col.name }); }}
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                                setDraggingAttr({ tableName: table.name, colName: item.col.name });
+                                setSelectedAttr({ tableName: table.name, colName: item.col.name });
+                                (e.currentTarget as unknown as Element).setPointerCapture?.(e.pointerId);
+                              }}
                               onClick={(e) => { e.stopPropagation(); }}
                             >
                               <ellipse cx={item.x} cy={item.y} rx={item.width / 2} ry={item.height / 2}
                                 fill={item.col.isPrimaryKey ? '#18181b' : '#09090b'}
-                                stroke={isSelected ? '#fbbf24' : item.col.isPrimaryKey ? '#2563eb' : '#52525b'}
-                                strokeWidth={isSelected ? 2.5 : 1.5}
+                                stroke={isSelected ? '#fbbf24' : highlightFk ? '#f59e0b' : item.col.isPrimaryKey ? '#2563eb' : '#52525b'}
+                                strokeWidth={isSelected || highlightFk ? 2.5 : 1.5}
                                 className="transition duration-150 group-hover:stroke-blue-400" />
                               <text x={item.x} y={item.y + 3.5} textAnchor="middle"
-                                fill={item.col.isPrimaryKey ? '#fa5454' : '#a1a1aa'}
+                                fill={isSelected ? '#fbbf24' : highlightFk ? '#f59e0b' : item.col.isPrimaryKey ? '#fa5454' : '#a1a1aa'}
                                 textDecoration={item.col.isPrimaryKey ? 'underline' : 'none'}
                                 className={`text-[10px] ${item.col.isPrimaryKey ? 'italic font-medium' : 'font-normal'}`}
                               >{item.col.name}</text>
@@ -719,8 +1240,10 @@ export default function DrawioPreview() {
 
                         <g transform={`translate(${cx - 60}, ${cy - 22.5})`} className="cursor-pointer">
                           <rect width={120} height={45} rx={6} fill="#18181b"
-                            stroke={table.isJunctionTable ? '#2563eb' : '#52525b'}
-                            strokeWidth={table.isJunctionTable ? 2 : 1.5} />
+                            stroke={isEntitySelected ? '#fbbf24' : table.isJunctionTable ? '#2563eb' : '#52525b'}
+                            strokeWidth={isEntitySelected ? 2.5 : table.isJunctionTable ? 2 : 1.5}
+                            className=""
+                          />
                           <text x={60} y={27.5} textAnchor="middle" fill="#fafafa" className="text-xs font-medium tracking-wide">{table.name}</text>
                           {table.isJunctionTable && (
                             <g transform="translate(35, -16)">
@@ -754,6 +1277,9 @@ export default function DrawioPreview() {
                     const tn = layout.nodes.find(n => n.id === rel.targetTable);
                     const srcCenter = sn ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 } : srcPt;
                     const tgtCenter = tn ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 } : tgtPt;
+                    const isDiamondFocused = selectedEntityName
+                      ? edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName
+                      : false;
 
                     const srcBorder = getBorderPoint(srcCenter, srcPt2, 120, 45);
                     const tgtBorder = getBorderPoint(tgtCenter, tgtPt2, 120, 45);
@@ -817,14 +1343,14 @@ export default function DrawioPreview() {
 
                         {/* Diamond — connected to lines */}
                         <g className="cursor-pointer">
-                          <polygon points={diamondPts} fill="#18181b" stroke="#2563eb" strokeWidth={1.5} />
+                          <polygon points={diamondPts} fill="#18181b" stroke={isDiamondFocused ? '#60a5fa' : '#2563eb'} strokeWidth={isDiamondFocused ? 2 : 1.5} />
                           {lines.length > 1 ? (
-                            <text x={dmX} y={dmY - 3} textAnchor="middle" fill="#2563eb" className="text-[8px] font-medium pointer-events-none">
+                            <text x={dmX} y={dmY - 3} textAnchor="middle" fill={isDiamondFocused ? '#60a5fa' : '#2563eb'} className="text-[8px] font-medium pointer-events-none">
                               <tspan x={dmX} dy="0">{lines[0]}</tspan>
                               <tspan x={dmX} dy="8">{lines[1].replace(/^\/\s*/, '/ ')}</tspan>
                             </text>
                           ) : (
-                            <text x={dmX} y={dmY + 3} textAnchor="middle" fill="#2563eb" className="text-[9px] font-medium pointer-events-none">{lines[0]}</text>
+                            <text x={dmX} y={dmY + 3} textAnchor="middle" fill={isDiamondFocused ? '#60a5fa' : '#2563eb'} className="text-[9px] font-medium pointer-events-none">{lines[0]}</text>
                           )}
                         </g>
                       </g>
@@ -839,6 +1365,9 @@ export default function DrawioPreview() {
                 {/* 1. Draw Connectors (Orthogonal lines) */}
                 {layout.edges.map((edge) => {
                   const rel = edge.relationship;
+                  const isEdgeFocused = selectedEntityName
+                    ? edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName
+                    : false;
                   let pathD = '';
                   edge.points.forEach((pt, i) => {
                     pathD += `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y} `;
@@ -846,7 +1375,15 @@ export default function DrawioPreview() {
 
                   return (
                     <g key={edge.id}>
-                      <path d={pathD} fill="none" stroke="#2563eb" strokeWidth={1.5} markerStart="url(#one-marker)" markerEnd={rel.type === '1:1' ? 'url(#one-one-marker)' : 'url(#many-marker)'} />
+                      <path
+                        d={pathD}
+                        fill="none"
+                        stroke={isEdgeFocused ? '#60a5fa' : '#2563eb'}
+                        strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                        markerStart="url(#one-marker)"
+                        markerEnd={rel.type === '1:1' ? 'url(#one-one-marker)' : 'url(#many-marker)'}
+                        className="diagram-rel-line"
+                      />
                     </g>
                   );
                 })}
@@ -1139,50 +1676,7 @@ export default function DrawioPreview() {
           </div>
         )}
 
-        {/* Floating Zoom Canvas Control widget */}
-        {hasDiagramData && (
-          <div className="absolute bottom-6 right-6 bg-zinc-900 border border-zinc-800 shadow-md rounded-lg p-1.5 flex items-center gap-1.5 z-10 transition duration-150 select-none">
-            <button
-              onClick={handleZoomOut}
-              className="flex h-7 w-7 items-center justify-center rounded bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition hover:bg-zinc-800"
-              title="Zoom Out"
-            >
-              <ZoomOut className="h-3.5 w-3.5" />
-            </button>
-            
-            <span className="min-w-[40px] text-center text-[10px] font-mono font-medium text-zinc-400">
-              {Math.round(zoom * 100)}%
-            </span>
-
-            <button
-              onClick={handleZoomIn}
-              className="flex h-7 w-7 items-center justify-center rounded bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition hover:bg-zinc-800"
-              title="Zoom In"
-            >
-              <ZoomIn className="h-3.5 w-3.5" />
-            </button>
-
-            <div className="h-4 w-px bg-zinc-800 mx-0.5" />
-
-            <button
-              onClick={handleFit}
-              className="flex h-7 px-2 items-center justify-center gap-1 rounded bg-zinc-950 border border-zinc-800 text-[10px] font-medium text-zinc-400 hover:text-zinc-200 transition hover:bg-zinc-850"
-              title="Fit to Screen"
-            >
-              <Maximize2 className="h-3 w-3" />
-              <span>Fit</span>
-            </button>
-
-            <button
-              onClick={handleReset}
-              className="flex h-7 px-2 items-center justify-center gap-1 rounded bg-zinc-950 border border-zinc-800 text-[10px] font-medium text-zinc-400 hover:text-zinc-200 transition hover:bg-zinc-850"
-              title="Reset View"
-            >
-              <RotateCcw className="h-3 w-3" />
-              <span>100%</span>
-            </button>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

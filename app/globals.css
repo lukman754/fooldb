@@ -47,3 +47,55 @@ button, input, select, textarea {
 .scrollbar-minimal::-webkit-scrollbar-thumb:hover {
   background: #52525b;
 }
+
+/* Extra-compact scrollbar for small floating popups. */
+.scrollbar-mini {
+  scrollbar-width: thin;
+  scrollbar-color: #52525b transparent;
+}
+
+.scrollbar-mini::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+.scrollbar-mini::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-mini::-webkit-scrollbar-thumb {
+  background: #52525b;
+  border-radius: 9999px;
+}
+
+.scrollbar-mini::-webkit-scrollbar-thumb:hover {
+  background: #71717a;
+}
+
+.diagram-rel-line {
+  transition: stroke 180ms ease, stroke-width 180ms ease, opacity 180ms ease;
+}
+
+.diagram-rel-line--active {
+  stroke-dasharray: 9 7;
+  animation:
+    diagram-rel-dash 1.15s linear infinite,
+    diagram-rel-pulse 1.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px rgba(96, 165, 250, 0.45));
+}
+
+@keyframes diagram-rel-dash {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes diagram-rel-pulse {
+  0%,
+  100% {
+    opacity: 0.75;
+  }
+  50% {
+    opacity: 1;
+  }
+}
