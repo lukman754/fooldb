@@ -24,12 +24,18 @@ export default function Home() {
 
   // Detect mobile on mount & resize
   useEffect(() => {
+    let wasMobile = window.innerWidth < 768;
+    setIsMobile(wasMobile);
+    if (wasMobile) setSidebarOpen(false);
+
     const check = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (mobile) setSidebarOpen(false);
+      const isCurrentlyMobile = window.innerWidth < 768;
+      setIsMobile(isCurrentlyMobile);
+      if (isCurrentlyMobile && !wasMobile) {
+        setSidebarOpen(false);
+      }
+      wasMobile = isCurrentlyMobile;
     };
-    check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
@@ -92,7 +98,7 @@ export default function Home() {
         {/* ── Left sidebar ── */}
         <div
           className={`
-            h-full flex flex-col shrink-0 overflow-hidden z-30
+            h-full flex flex-col shrink-0 overflow-hidden z-30 bg-zinc-950
             md:transition-[width] md:duration-300 md:ease-in-out
             max-md:absolute max-md:left-0 max-md:top-0 max-md:h-full
             max-md:shadow-2xl max-md:border-r max-md:border-zinc-800
