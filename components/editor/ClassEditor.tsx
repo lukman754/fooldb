@@ -58,8 +58,9 @@ export default function ClassEditor() {
         ...classMethods,
         [activeTable]: methods
       });
-    } catch (err: any) {
-      alert(err.message || "Failed to generate methods.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(msg || "Failed to generate methods.");
     } finally {
       setIsAiLoading(false);
     }

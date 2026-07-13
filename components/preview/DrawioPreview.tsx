@@ -2443,12 +2443,7 @@ export default function DrawioPreview() {
 
                         {/* Attributes Compartment */}
                         {table.columns.map((col, idx) => {
-                          const isFk = table.foreignKeys.some((fk) =>
-                            fk.columns
-                              .map((c) => c.toLowerCase())
-                              .includes(col.name.toLowerCase()),
-                          );
-                          const vis = col.isPrimaryKey ? "+" : "-";
+                          const vis = col.isPrimaryKey ? "+" : "-" ;
                           const ry = ty + headerHeight + 8 + idx * 20;
                           return (
                             <text
