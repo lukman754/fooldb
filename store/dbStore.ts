@@ -261,6 +261,40 @@ const DEFAULT_UML_LINKS: UmlLink[] = [
 
 const DEFAULT_UML_RELATIONS: UmlRelation[] = [];
 
+function syncDslToInteractive(code: string) {
+  const parsed = parseUseCase(code);
+  const actors: UmlActor[] = parsed.actors.map(a => ({
+    id: a.id,
+    name: a.name,
+    side: (a as any).side || 'left'
+  }));
+  const usecases: UmlUsecase[] = parsed.usecases.map(u => ({
+    id: u.id,
+    name: u.name
+  }));
+  const links: UmlLink[] = [];
+  const relations: UmlRelation[] = [];
+  parsed.connections.forEach((conn, index) => {
+    const isLink = actors.some(a => a.id === conn.from) && usecases.some(u => u.id === conn.to);
+    if (isLink) {
+      links.push({
+        id: conn.id || `uml_link_${index}`,
+        actorId: conn.from,
+        usecaseId: conn.to
+      });
+    } else {
+      const type = conn.label?.includes('extend') ? 'extend' : 'include';
+      relations.push({
+        id: conn.id || `uml_rel_${index}`,
+        sourceId: conn.from,
+        targetId: conn.to,
+        type
+      });
+    }
+  });
+  return { actors, usecases, links, relations };
+}
+
 export const useDbStore = create<DbState>((set, get) => {
   let initialAttrPositions = {};
   if (typeof window !== 'undefined') {
@@ -663,10 +697,15 @@ export const useDbStore = create<DbState>((set, get) => {
       } else if (targetMode === 'usecase') {
         const code = codeArg !== undefined ? codeArg : get().usecaseCode;
         const usecaseDiagram = parseUseCase(code);
+        const synced = syncDslToInteractive(code);
         
         const duration = performance.now() - startTime;
         set({
           usecaseDiagram,
+          umlActors: synced.actors,
+          umlUsecases: synced.usecases,
+          umlLinks: synced.links,
+          umlRelations: synced.relations,
           renderTime: Math.round(duration),
           error: null
         });
@@ -677,7 +716,7 @@ export const useDbStore = create<DbState>((set, get) => {
         const defaultForUsecase = `start\n:${usecaseName} process;\nstop\n`;
         const code = codeArg !== undefined 
           ? codeArg 
-          : (selectedId ? (get().activityCodes[selectedId] ?? defaultForUsecase) : get().activityCode);
+          : (selectedId ? ((get().activityCodes || {})[selectedId] ?? defaultForUsecase) : get().activityCode);
         const parsed = parseActivity(code);
         const activityDiagram = await computeActivityLayout(parsed);
         
@@ -694,7 +733,7 @@ export const useDbStore = create<DbState>((set, get) => {
         const defaultForUsecase = `User -> System : Start ${usecaseName}\nSystem -> Database : Fetch details\nDatabase -> System : Return record\nSystem -> User : Display success\n`;
         const code = codeArg !== undefined 
           ? codeArg 
-          : (selectedId ? (get().sequenceCodes[selectedId] ?? defaultForUsecase) : get().sequenceCode);
+          : (selectedId ? ((get().sequenceCodes || {})[selectedId] ?? defaultForUsecase) : get().sequenceCode);
         const sequenceDiagram = parseSequence(code);
         
         const duration = performance.now() - startTime;

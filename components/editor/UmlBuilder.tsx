@@ -5,8 +5,9 @@ import { useDbStore } from "@/store/dbStore";
 import { UseCaseDiagram } from "@/types";
 import { Plus, Trash2, Check, X, User, Activity, ArrowLeft, ArrowRight, Link, Unlink, GitBranch, Shuffle } from "lucide-react";
 
-let nextId = 1;
-function genId() { return `uml_${nextId++}`; }
+function genId() {
+  return `uml_${Math.random().toString(36).substring(2, 9)}`;
+}
 
 interface UmlActor {
   id: string;
@@ -42,6 +43,32 @@ function buildDiagram(actors: UmlActor[], usecases: UmlUsecase[], links: UmlLink
       ...relations.map(r => ({ id: r.id, from: r.sourceId, to: r.targetId, label: `<<${r.type}>>` })),
     ],
   };
+}
+
+function generateUseCaseDsl(actors: UmlActor[], usecases: UmlUsecase[], links: UmlLink[], relations: UmlRelation[]): string {
+  let lines: string[] = [];
+  actors.forEach(a => {
+    lines.push(`actor "${a.name}"`);
+  });
+  lines.push('system "System Boundary"');
+  usecases.forEach(u => {
+    lines.push(`  usecase "${u.name}"`);
+  });
+  links.forEach(l => {
+    const act = actors.find(a => a.id === l.actorId);
+    const uc = usecases.find(u => u.id === l.usecaseId);
+    if (act && uc) {
+      lines.push(`"${act.name}" -> "${uc.name}"`);
+    }
+  });
+  relations.forEach(r => {
+    const src = usecases.find(u => u.id === r.sourceId);
+    const tgt = usecases.find(u => u.id === r.targetId);
+    if (src && tgt) {
+      lines.push(`"${src.name}" -> "${tgt.name}" <<${r.type}>>`);
+    }
+  });
+  return lines.join('\n');
 }
 
 function InlineEdit({ value, onCommit, className = "" }: { value: string; onCommit: (v: string) => void; className?: string }) {
@@ -96,7 +123,12 @@ export default function UmlBuilder() {
   const addUcRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    useDbStore.setState({ usecaseDiagram: buildDiagram(actors, usecases, links, relations) });
+    const diagram = buildDiagram(actors, usecases, links, relations);
+    const code = generateUseCaseDsl(actors, usecases, links, relations);
+    useDbStore.setState({ 
+      usecaseDiagram: diagram,
+      usecaseCode: code
+    });
   }, [actors, usecases, links, relations]);
 
   useEffect(() => { if (showAddActor) addActorRef.current?.focus(); }, [showAddActor]);
