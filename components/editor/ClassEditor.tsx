@@ -60,7 +60,25 @@ export default function ClassEditor() {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(msg || "Failed to generate methods.");
+      if (msg.includes("429") || msg.toLowerCase().includes("quota") || msg.toLowerCase().includes("rate limit")) {
+        const confirmLocal = window.confirm(
+          "Gemini API rate limit/quota exceeded (429). Would you like to automatically populate standard CRUD operations instead?"
+        );
+        if (confirmLocal) {
+          const defaultCrud = [
+            `+ insert(input: Data): void`,
+            `+ update(id: int, data: Data): boolean`,
+            `+ delete(id: int): boolean`,
+            `+ findById(id: int): Object`
+          ];
+          setClassMethods({
+            ...classMethods,
+            [activeTable]: defaultCrud
+          });
+        }
+      } else {
+        alert(msg || "Failed to generate methods.");
+      }
     } finally {
       setIsAiLoading(false);
     }
