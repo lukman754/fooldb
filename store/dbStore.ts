@@ -25,7 +25,40 @@ function scheduleVisualLayout(fn: () => void, delay = 120) {
   visualLayoutTimer = setTimeout(() => { visualLayoutTimer = null; fn(); }, delay);
 }
 
+export interface UmlActor {
+  id: string;
+  name: string;
+  side: 'left' | 'right';
+}
+
+export interface UmlUsecase {
+  id: string;
+  name: string;
+}
+
+export interface UmlLink {
+  id: string;
+  actorId: string;
+  usecaseId: string;
+}
+
+export interface UmlRelation {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  type: 'include' | 'extend';
+}
+
 interface DbState {
+  isInitialized: boolean;
+  umlActors: UmlActor[];
+  umlUsecases: UmlUsecase[];
+  umlLinks: UmlLink[];
+  umlRelations: UmlRelation[];
+  setUmlActors: (actors: UmlActor[] | ((prev: UmlActor[]) => UmlActor[])) => void;
+  setUmlUsecases: (usecases: UmlUsecase[] | ((prev: UmlUsecase[]) => UmlUsecase[])) => void;
+  setUmlLinks: (links: UmlLink[] | ((prev: UmlLink[]) => UmlLink[])) => void;
+  setUmlRelations: (relations: UmlRelation[] | ((prev: UmlRelation[]) => UmlRelation[])) => void;
   mode: AppMode;
   sqlCode: string;
   usecaseCode: string;
@@ -201,6 +234,29 @@ Server -> Browser : Order success JSON (201 Created)
 Browser -> Customer : Display Order Success dashboard
 `;
 
+const DEFAULT_UML_ACTORS: UmlActor[] = [
+  { id: 'uml_actor_1', name: 'Customer', side: 'left' },
+  { id: 'uml_actor_2', name: 'Admin', side: 'left' },
+];
+
+const DEFAULT_UML_USECASES: UmlUsecase[] = [
+  { id: 'uml_uc_1', name: 'Browse Products' },
+  { id: 'uml_uc_2', name: 'Manage Cart' },
+  { id: 'uml_uc_3', name: 'Checkout Order' },
+  { id: 'uml_uc_4', name: 'Manage Catalog' },
+  { id: 'uml_uc_5', name: 'Process Shipments' },
+];
+
+const DEFAULT_UML_LINKS: UmlLink[] = [
+  { id: 'uml_link_1', actorId: 'uml_actor_1', usecaseId: 'uml_uc_1' },
+  { id: 'uml_link_2', actorId: 'uml_actor_1', usecaseId: 'uml_uc_2' },
+  { id: 'uml_link_3', actorId: 'uml_actor_1', usecaseId: 'uml_uc_3' },
+  { id: 'uml_link_4', actorId: 'uml_actor_2', usecaseId: 'uml_uc_4' },
+  { id: 'uml_link_5', actorId: 'uml_actor_2', usecaseId: 'uml_uc_5' },
+];
+
+const DEFAULT_UML_RELATIONS: UmlRelation[] = [];
+
 export const useDbStore = create<DbState>((set, get) => {
   let initialAttrPositions = {};
   if (typeof window !== 'undefined') {
@@ -213,6 +269,15 @@ export const useDbStore = create<DbState>((set, get) => {
   }
 
   return {
+    isInitialized: false,
+    umlActors: DEFAULT_UML_ACTORS,
+    umlUsecases: DEFAULT_UML_USECASES,
+    umlLinks: DEFAULT_UML_LINKS,
+    umlRelations: DEFAULT_UML_RELATIONS,
+    setUmlActors: (actors) => set((state) => ({ umlActors: typeof actors === 'function' ? actors(state.umlActors) : actors })),
+    setUmlUsecases: (usecases) => set((state) => ({ umlUsecases: typeof usecases === 'function' ? usecases(state.umlUsecases) : usecases })),
+    setUmlLinks: (links) => set((state) => ({ umlLinks: typeof links === 'function' ? links(state.umlLinks) : links })),
+    setUmlRelations: (relations) => set((state) => ({ umlRelations: typeof relations === 'function' ? relations(state.umlRelations) : relations })),
     mode: 'erd',
   sqlCode: DEFAULT_SQL,
   usecaseCode: DEFAULT_USECASE,
@@ -724,9 +789,12 @@ export const useDbStore = create<DbState>((set, get) => {
         const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
         if (cachedBuilderState) {
           const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
-            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom'
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations'
           >>;
-          set(cached);
+          set({
+            ...cached,
+            isInitialized: true
+          });
           const targetMode = cached.mode || 'erd';
           if (cached.visualSchemaActive && cached.visualSchema?.tables?.length) {
             get().triggerVisualLayout();
@@ -741,10 +809,11 @@ export const useDbStore = create<DbState>((set, get) => {
             get().triggerParse(targetMode, code);
           }
         } else {
+          set({ isInitialized: true });
           get().triggerParse('erd', DEFAULT_SQL);
         }
       } catch {
-        // Ignore malformed or stale browser cache.
+        set({ isInitialized: true });
       }
     }
   },
@@ -843,6 +912,10 @@ export const useDbStore = create<DbState>((set, get) => {
       classMethods: {},
       attrPositions: {},
       zoom: 1,
+      umlActors: DEFAULT_UML_ACTORS,
+      umlUsecases: DEFAULT_UML_USECASES,
+      umlLinks: DEFAULT_UML_LINKS,
+      umlRelations: DEFAULT_UML_RELATIONS,
     });
     get().triggerParse('erd', DEFAULT_SQL);
   },
@@ -851,6 +924,7 @@ export const useDbStore = create<DbState>((set, get) => {
 
 if (typeof window !== 'undefined') {
   useDbStore.subscribe((state) => {
+    if (!state.isInitialized) return;
     const cache = {
       visualSchema: state.visualSchema,
       visualSchemaActive: state.visualSchemaActive,
@@ -864,6 +938,10 @@ if (typeof window !== 'undefined') {
       mode: state.mode,
       excludedTables: state.excludedTables,
       zoom: state.zoom,
+      umlActors: state.umlActors,
+      umlUsecases: state.umlUsecases,
+      umlLinks: state.umlLinks,
+      umlRelations: state.umlRelations,
     };
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });

@@ -72,25 +72,14 @@ function InlineEdit({ value, onCommit, className = "" }: { value: string; onComm
 }
 
 export default function UmlBuilder() {
-  const [actors, setActors] = useState<UmlActor[]>([
-    { id: genId(), name: "Customer", side: "left" },
-    { id: genId(), name: "Admin", side: "left" },
-  ]);
-  const [usecases, setUsecases] = useState<UmlUsecase[]>([
-    { id: genId(), name: "Browse Products" },
-    { id: genId(), name: "Manage Cart" },
-    { id: genId(), name: "Checkout Order" },
-    { id: genId(), name: "Manage Catalog" },
-    { id: genId(), name: "Process Shipments" },
-  ]);
-  const [links, setLinks] = useState<UmlLink[]>([
-    { id: genId(), actorId: actors[0].id, usecaseId: usecases[0].id },
-    { id: genId(), actorId: actors[0].id, usecaseId: usecases[1].id },
-    { id: genId(), actorId: actors[0].id, usecaseId: usecases[2].id },
-    { id: genId(), actorId: actors[1].id, usecaseId: usecases[3].id },
-    { id: genId(), actorId: actors[1].id, usecaseId: usecases[4].id },
-  ]);
-  const [relations, setRelations] = useState<UmlRelation[]>([]);
+  const actors = useDbStore((state) => state.umlActors);
+  const setActors = useDbStore((state) => state.setUmlActors);
+  const usecases = useDbStore((state) => state.umlUsecases);
+  const setUsecases = useDbStore((state) => state.setUmlUsecases);
+  const links = useDbStore((state) => state.umlLinks);
+  const setLinks = useDbStore((state) => state.setUmlLinks);
+  const relations = useDbStore((state) => state.umlRelations);
+  const setRelations = useDbStore((state) => state.setUmlRelations);
 
   const [showAddActor, setShowAddActor] = useState(false);
   const [showAddUsecase, setShowAddUsecase] = useState(false);
