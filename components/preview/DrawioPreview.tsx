@@ -4,7 +4,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useDbStore } from '@/store/dbStore';
 import { getRelationshipLabel } from '@/lib/xml/drawioGenerator';
 import { Column } from '@/types';
-import { ChevronDown, RefreshCw, Filter, Sparkles, Sliders } from 'lucide-react';
+import { ChevronDown, RefreshCw, Filter, Sparkles, Sliders, Database } from 'lucide-react';
 
 export default function DrawioPreview() {
   const mode = useDbStore((state) => state.mode);
@@ -49,6 +49,7 @@ export default function DrawioPreview() {
   const [draggingAttr, setDraggingAttr] = useState<{ tableName: string; colName: string } | null>(null);
   const [selectedAttr, setSelectedAttr] = useState<{ tableName: string; colName: string } | null>(null);
   const [selectedEntityName, setSelectedEntityName] = useState<string | null>(null);
+  const [entityInfoCollapsed, setEntityInfoCollapsed] = useState(false);
   const [showAttrControls, setShowAttrControls] = useState(false);
   
   const attrPositions = useDbStore((state) => state.attrPositions);
@@ -95,7 +96,10 @@ export default function DrawioPreview() {
     : null;
 
   useEffect(() => {
-    if (selectedAttr) setShowAttrControls(true);
+    if (selectedAttr) {
+      setSelectedEntityName(null);
+      setShowAttrControls(true);
+    }
   }, [selectedAttr]);
 
   const focusEntityOnCanvas = (tableName: string) => {
@@ -223,6 +227,7 @@ export default function DrawioPreview() {
     panStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
     setIsPanning(true);
     setSelectedAttr(null);
+    setEntityInfoCollapsed(true);
     e.currentTarget.setPointerCapture?.(e.pointerId);
 
     if (activePointersRef.current.size >= 2) startPinchGesture();
@@ -295,14 +300,28 @@ export default function DrawioPreview() {
     if (!container) return;
 
     const handleNativeWheel = (e: WheelEvent) => {
-      // Prevent browser default scrolling or page-level pinch-to-zoom
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('[data-canvas-interactive="true"]')) return;
+
       e.preventDefault();
+
+      const rect = container.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left;
+      const cursorY = e.clientY - rect.top;
 
       const zoomIntensity = 0.08;
       const delta = e.deltaY < 0 ? 1 : -1;
-      setZoom((prevZoom) => {
-        const nextZoom = prevZoom + delta * zoomIntensity * prevZoom;
-        return Math.max(0.1, Math.min(3, nextZoom));
+
+      const oldZoom = zoom;
+      const nextZoom = Math.max(0.1, Math.min(3, oldZoom + delta * zoomIntensity * oldZoom));
+
+      const worldX = (cursorX - pan.x) / oldZoom;
+      const worldY = (cursorY - pan.y) / oldZoom;
+
+      setZoom(nextZoom);
+      setPan({
+        x: cursorX - worldX * nextZoom,
+        y: cursorY - worldY * nextZoom,
       });
     };
 
@@ -310,7 +329,7 @@ export default function DrawioPreview() {
     return () => {
       container.removeEventListener('wheel', handleNativeWheel);
     };
-  }, [setZoom]);
+  }, [setZoom, setPan, zoom, pan]);
 
   // Zoom control buttons
   const handleZoomIn = () => setZoom((z) => z + 0.1);
@@ -705,11 +724,12 @@ export default function DrawioPreview() {
           </div>
         )}
 
-        {selectedEntityName && selectedEntityTable && (
+        {selectedEntityName && selectedEntityTable && !entityInfoCollapsed && (
           <div
             className="absolute right-4 top-4 z-40 w-fit min-w-[18rem] max-w-[calc(100vw-24px)] rounded-xl border border-zinc-800 bg-zinc-900/95 p-3 shadow-2xl backdrop-blur-sm select-none"
             data-canvas-interactive="true"
             onPointerDown={(e) => e.stopPropagation()}
+            onWheel={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
               <div className="min-w-0">
@@ -717,7 +737,7 @@ export default function DrawioPreview() {
                 <div className="truncate text-sm font-semibold text-zinc-100">{selectedEntityName}</div>
               </div>
               <button
-                onClick={() => setSelectedEntityName(null)}
+                onClick={() => setEntityInfoCollapsed(true)}
                 className="rounded border border-zinc-800 px-2 py-1 text-[10px] font-semibold text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800"
               >
                 Close
@@ -797,6 +817,19 @@ export default function DrawioPreview() {
               </div>
             </div>
           </div>
+        )}
+
+        {selectedEntityName && selectedEntityTable && entityInfoCollapsed && (
+          <button
+            onClick={() => setEntityInfoCollapsed(false)}
+            className="absolute right-4 top-4 z-40 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/95 px-3 py-2 shadow-2xl backdrop-blur-sm hover:bg-zinc-800 transition-colors"
+            data-canvas-interactive="true"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <Database className="h-3.5 w-3.5 text-blue-500" />
+            <span className="text-xs font-semibold text-zinc-200">{selectedEntityName}</span>
+            <ChevronDown className="h-3 w-3 text-zinc-500 -rotate-90" />
+          </button>
         )}
 
         {false && selectedAttr && (
@@ -1192,7 +1225,24 @@ export default function DrawioPreview() {
                       <g
                         key={node.id}
                         onPointerDown={(e) => e.stopPropagation()}
-                        onClick={() => setSelectedEntityName((current) => (current === table.name ? null : table.name))}
+                        onClick={() => {
+                          setSelectedEntityName((current) => {
+                            if (current === table.name) {
+                              if (!entityInfoCollapsed) {
+                                setEntityInfoCollapsed(true);
+                                return current;
+                              }
+                              setSelectedAttr(null);
+                              setShowAttrControls(false);
+                              setEntityInfoCollapsed(false);
+                              return null;
+                            }
+                            setSelectedAttr(null);
+                            setShowAttrControls(false);
+                            setEntityInfoCollapsed(false);
+                            return table.name;
+                          });
+                        }}
                       >
                         {selectedAttrInTable && (
                           <circle cx={cx} cy={cy} r={selectedAttrInTable.radius}
@@ -1220,6 +1270,7 @@ export default function DrawioPreview() {
                                 e.stopPropagation();
                                 setDraggingAttr({ tableName: table.name, colName: item.col.name });
                                 setSelectedAttr({ tableName: table.name, colName: item.col.name });
+                                setSelectedEntityName(null);
                                 (e.currentTarget as unknown as Element).setPointerCapture?.(e.pointerId);
                               }}
                               onClick={(e) => { e.stopPropagation(); }}
