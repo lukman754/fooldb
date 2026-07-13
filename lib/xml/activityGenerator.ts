@@ -118,7 +118,7 @@ export function generateActivityFormXml(formData: ActivityFormData): string {
     if (curr.branches) targets.push(...curr.branches.map(b => b.targetId).filter(Boolean));
     
     for (const target of targets) {
-      if (levels[target] === undefined || levels[target] <= currentLevel) {
+      if (levels[target] === undefined) {  // only visit each node once — prevents infinite loop
         levels[target] = currentLevel + 1;
         const targetNode = formData.nodes.find(n => n.id === target);
         if (targetNode) queue.push(targetNode);

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -3403,7 +3403,7 @@ export default function DrawioPreview() {
                 const PAD_X = 24;
                 const PAD_Y = 48;
 
-                // Build level map via BFS from start nodes
+                // Build level map via BFS from start nodes (each node visited ONCE)
                 const levels: Record<string, number> = {};
                 const bfsQ = fd.nodes.filter(n => n.type === 'start');
                 if (bfsQ.length === 0 && fd.nodes.length > 0) bfsQ.push(fd.nodes[0]);
@@ -3417,7 +3417,7 @@ export default function DrawioPreview() {
                     ...(cur.branches || []).map((b: { condition: string; targetId: string }) => b.targetId).filter(Boolean)
                   ];
                   for (const t of targets) {
-                    if (levels[t] === undefined || levels[t] <= cl) {
+                    if (levels[t] === undefined) {  // only visit each node once — prevents infinite loop
                       levels[t] = cl + 1;
                       const tn = fd.nodes.find(n => n.id === t);
                       if (tn) bfsQ.push(tn);
