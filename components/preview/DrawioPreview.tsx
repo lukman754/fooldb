@@ -1,31 +1,68 @@
-'use client';
+"use client";
 
-import React, { useRef, useState, useEffect } from 'react';
-import { useDbStore } from '@/store/dbStore';
-import { getRelationshipLabel } from '@/lib/xml/drawioGenerator';
-import { Column } from '@/types';
-import { ChevronDown, RefreshCw, Filter, Sparkles, Sliders, Database } from 'lucide-react';
+import React, { useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useDbStore } from "@/store/dbStore";
+import { getRelationshipLabel } from "@/lib/xml/drawioGenerator";
+import { formatLrsColumn } from "@/lib/xml/lrsGenerator";
+import { Column } from "@/types";
+import {
+  ChevronDown,
+  RefreshCw,
+  Filter,
+  Sparkles,
+  Sliders,
+  Database,
+} from "lucide-react";
+
+function hueToHex(hue: number, s = 70, l = 50): string {
+  s /= 100;
+  l /= 100;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + hue / 30) % 12;
+    const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+    return Math.round(255 * color).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+export function getTableColors(tableName: string) {
+  let hash = 0;
+  for (let i = 0; i < tableName.length; i++) {
+    hash = tableName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return {
+    stroke: hueToHex(hue, 70, 50),
+    fill: hueToHex(hue, 80, 93),
+    text: hueToHex(hue, 80, 20),
+    border: hueToHex(hue, 70, 40),
+  };
+}
 
 export default function DrawioPreview() {
   const mode = useDbStore((state) => state.mode);
-  
+
   // Diagram states
   const layout = useDbStore((state) => state.layout); // used for ERD & LRS
   const usecaseDiagram = useDbStore((state) => state.usecaseDiagram);
   const activityDiagram = useDbStore((state) => state.activityDiagram);
   const sequenceDiagram = useDbStore((state) => state.sequenceDiagram);
-  
+
   const schema = useDbStore((state) => state.schema);
   const excludedTables = useDbStore((state) => state.excludedTables);
-  const toggleTableExclusion = useDbStore((state) => state.toggleTableExclusion);
+  const toggleTableExclusion = useDbStore(
+    (state) => state.toggleTableExclusion,
+  );
   const clearExcludedTables = useDbStore((state) => state.clearExcludedTables);
   const [showTableFilter, setShowTableFilter] = useState(false);
-  
+
   const error = useDbStore((state) => state.error);
   const triggerParse = useDbStore((state) => state.triggerParse);
   const isAiLoading = useDbStore((state) => state.isAiLoading);
   const triggerAiLabeling = useDbStore((state) => state.triggerAiLabeling);
-  
+
   const zoom = useDbStore((state) => state.zoom);
   const setZoom = useDbStore((state) => state.setZoom);
   const resetZoom = useDbStore((state) => state.resetZoom);
@@ -46,54 +83,85 @@ export default function DrawioPreview() {
   });
 
   // Dragging and positioning states for attributes
-  const [draggingAttr, setDraggingAttr] = useState<{ tableName: string; colName: string } | null>(null);
-  const [selectedAttr, setSelectedAttr] = useState<{ tableName: string; colName: string } | null>(null);
-  const [selectedEntityName, setSelectedEntityName] = useState<string | null>(null);
+  const [draggingAttr, setDraggingAttr] = useState<{
+    tableName: string;
+    colName: string;
+  } | null>(null);
+  const [selectedAttr, setSelectedAttr] = useState<{
+    tableName: string;
+    colName: string;
+  } | null>(null);
+  const [selectedEntityName, setSelectedEntityName] = useState<string | null>(
+    null,
+  );
   const [entityInfoCollapsed, setEntityInfoCollapsed] = useState(false);
   const [showAttrControls, setShowAttrControls] = useState(false);
-  
+  const orbitBtnRef = useRef<HTMLButtonElement>(null);
+  const [orbitBtnRect, setOrbitBtnRect] = useState<{ top: number; right: number } | null>(null);
+
   const attrPositions = useDbStore((state) => state.attrPositions);
   const setAttrPosition = useDbStore((state) => state.setAttrPosition);
   const resetAttrPosition = useDbStore((state) => state.resetAttrPosition);
-  const resetTableAttrPositions = useDbStore((state) => state.resetTableAttrPositions);
-  const resetAllAttrPositions = useDbStore((state) => state.resetAllAttrPositions);
+  const resetTableAttrPositions = useDbStore(
+    (state) => state.resetTableAttrPositions,
+  );
+  const resetAllAttrPositions = useDbStore(
+    (state) => state.resetAllAttrPositions,
+  );
   const relNotation = useDbStore((state) => state.relNotation);
   const setRelNotation = useDbStore((state) => state.setRelNotation);
+  const lrsKeyNotation = useDbStore((state) => state.lrsKeyNotation);
+  const setLrsKeyNotation = useDbStore((state) => state.setLrsKeyNotation);
+  const classMethods = useDbStore((state) => state.classMethods);
 
-  const selectedEntityNode = layout?.nodes.find((node) => node.table.name === selectedEntityName) ?? null;
+  const selectedEntityNode =
+    layout?.nodes.find((node) => node.table.name === selectedEntityName) ??
+    null;
   const selectedEntityTable = selectedEntityNode?.table ?? null;
   const selectedEntityEdges = selectedEntityName
-    ? layout?.edges.filter(
-        (edge) => edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName,
-      ) ?? []
+    ? (layout?.edges.filter(
+        (edge) =>
+          edge.sourceTable === selectedEntityName ||
+          edge.targetTable === selectedEntityName,
+      ) ?? [])
     : [];
   const selectedEntityRelations = selectedEntityName
     ? selectedEntityEdges.map((edge) => {
         const rel = edge.relationship;
         const isSource = rel.sourceTable === selectedEntityName;
         const otherTable = isSource ? rel.targetTable : rel.sourceTable;
-        const verb = rel.verb || getRelationshipLabel(rel.sourceTable, rel.targetTable);
-        const sourceCardinality = rel.sourceCardinality ?? 'one';
-        const targetCardinality = rel.targetCardinality ?? (rel.type === '1:1' ? 'one' : 'many');
-        const cardinality = `${sourceCardinality === 'many' ? 'M' : '1'}:${targetCardinality === 'many' ? 'M' : '1'}`;
+        const verb =
+          rel.verb || getRelationshipLabel(rel.sourceTable, rel.targetTable);
+        const sourceCardinality = rel.sourceCardinality ?? "one";
+        const targetCardinality =
+          rel.targetCardinality ?? (rel.type === "1:1" ? "one" : "many");
+        const cardinality = `${sourceCardinality === "many" ? "M" : "1"}:${targetCardinality === "many" ? "M" : "1"}`;
         return { edgeId: edge.id, otherTable, verb, cardinality };
       })
     : [];
-  const selectedAttrMeta = selectedAttr && layout
-    ? (() => {
-        const node = layout.nodes.find((n) => n.table.name === selectedAttr.tableName);
-        if (!node) return null;
-        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
-        if (idx < 0) return null;
-        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
-        const defaultRadius = 85 + node.table.columns.length * 5;
-        const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
-        let deg = Math.round((pos.angle * 180) / Math.PI);
-        if (deg < 0) deg += 360;
-        return { key, node, pos, deg, radiusVal: Math.round(pos.radius) };
-      })()
-    : null;
+  const selectedAttrMeta =
+    selectedAttr && layout
+      ? (() => {
+          const node = layout.nodes.find(
+            (n) => n.table.name === selectedAttr.tableName,
+          );
+          if (!node) return null;
+          const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+          const idx = node.table.columns.findIndex(
+            (c) => c.name === selectedAttr.colName,
+          );
+          if (idx < 0) return null;
+          const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
+          const defaultRadius = 85 + node.table.columns.length * 5;
+          const pos = attrPositions[key] || {
+            angle: defaultAngle,
+            radius: defaultRadius,
+          };
+          let deg = Math.round((pos.angle * 180) / Math.PI);
+          if (deg < 0) deg += 360;
+          return { key, node, pos, deg, radiusVal: Math.round(pos.radius) };
+        })()
+      : null;
 
   useEffect(() => {
     if (selectedAttr) {
@@ -123,25 +191,31 @@ export default function DrawioPreview() {
   let canvasHeight = 600;
   let hasDiagramData = false;
 
-  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') {
+  if (
+    mode === "erd" ||
+    mode === "lrs" ||
+    mode === "transformation" ||
+    mode === "visual" ||
+    mode === "class"
+  ) {
     if (layout) {
       canvasWidth = layout.width;
       canvasHeight = layout.height;
       hasDiagramData = true;
     }
-  } else if (mode === 'usecase' || mode === 'uml') {
+  } else if (mode === "usecase" || mode === "uml") {
     if (usecaseDiagram) {
       canvasWidth = 720;
       canvasHeight = Math.max(400, usecaseDiagram.usecases.length * 90 + 120);
       hasDiagramData = true;
     }
-  } else if (mode === 'activity') {
+  } else if (mode === "activity") {
     if (activityDiagram) {
       canvasWidth = activityDiagram.width;
       canvasHeight = activityDiagram.height;
       hasDiagramData = true;
     }
-  } else if (mode === 'sequence') {
+  } else if (mode === "sequence") {
     if (sequenceDiagram) {
       canvasWidth = 100 + sequenceDiagram.participants.length * 220 + 80;
       canvasHeight = Math.max(300, sequenceDiagram.messages.length * 60 + 180);
@@ -152,7 +226,7 @@ export default function DrawioPreview() {
   // Auto-fit view coordinates and scale to container bounds when the active layout/mode changes
   useEffect(() => {
     if (!containerRef.current || !hasDiagramData) return;
-    
+
     const diagWidth = canvasWidth;
     const diagHeight = canvasHeight;
 
@@ -166,7 +240,7 @@ export default function DrawioPreview() {
     const scaleX = targetWidth / diagWidth;
     const scaleY = targetHeight / diagHeight;
     let newZoom = Math.min(scaleX, scaleY);
-    
+
     // Clamp zoom to prevent microscopic sizes or massive scaling
     newZoom = Math.max(0.15, Math.min(1.5, newZoom));
 
@@ -176,7 +250,17 @@ export default function DrawioPreview() {
 
     setPan({ x: xOffset, y: yOffset });
     setZoom(newZoom);
-  }, [layout, usecaseDiagram, activityDiagram, sequenceDiagram, mode, hasDiagramData, canvasWidth, canvasHeight, setZoom]);
+  }, [
+    layout,
+    usecaseDiagram,
+    activityDiagram,
+    sequenceDiagram,
+    mode,
+    hasDiagramData,
+    canvasWidth,
+    canvasHeight,
+    setZoom,
+  ]);
 
   const updateDraggingAttribute = (clientX: number, clientY: number) => {
     if (!containerRef.current || !layout || !draggingAttr) return;
@@ -185,7 +269,9 @@ export default function DrawioPreview() {
     const mouseX = (clientX - rect.left - pan.x) / zoom;
     const mouseY = (clientY - rect.top - pan.y) / zoom;
 
-    const node = layout.nodes.find((n) => n.table.name === draggingAttr.tableName);
+    const node = layout.nodes.find(
+      (n) => n.table.name === draggingAttr.tableName,
+    );
     if (!node) return;
 
     const cx = node.x + node.width / 2;
@@ -195,7 +281,10 @@ export default function DrawioPreview() {
     const radius = Math.max(50, Math.min(350, Math.sqrt(dx * dx + dy * dy)));
     const angle = Math.atan2(dy, dx);
 
-    setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, { angle, radius });
+    setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, {
+      angle,
+      radius,
+    });
   };
 
   const startPinchGesture = () => {
@@ -208,7 +297,10 @@ export default function DrawioPreview() {
     gestureRef.current.mode = "pinch";
     gestureRef.current.startZoom = zoom;
     gestureRef.current.startPan = { ...pan };
-    gestureRef.current.startDistance = Math.max(Math.hypot(first.x - second.x, first.y - second.y), 1);
+    gestureRef.current.startDistance = Math.max(
+      Math.hypot(first.x - second.x, first.y - second.y),
+      1,
+    );
     gestureRef.current.startCenter = {
       x: (first.x + second.x) / 2,
       y: (first.y + second.y) / 2,
@@ -252,14 +344,28 @@ export default function DrawioPreview() {
         x: (first.x + second.x) / 2,
         y: (first.y + second.y) / 2,
       };
-      const currentDistance = Math.max(Math.hypot(first.x - second.x, first.y - second.y), 1);
-      const nextZoom = Math.max(0.1, Math.min(3, gestureRef.current.startZoom * (currentDistance / gestureRef.current.startDistance)));
+      const currentDistance = Math.max(
+        Math.hypot(first.x - second.x, first.y - second.y),
+        1,
+      );
+      const nextZoom = Math.max(
+        0.1,
+        Math.min(
+          3,
+          gestureRef.current.startZoom *
+            (currentDistance / gestureRef.current.startDistance),
+        ),
+      );
 
       const rect = containerRef.current.getBoundingClientRect();
       const anchorX = gestureRef.current.startCenter.x - rect.left;
       const anchorY = gestureRef.current.startCenter.y - rect.top;
-      const worldX = (anchorX - gestureRef.current.startPan.x) / gestureRef.current.startZoom;
-      const worldY = (anchorY - gestureRef.current.startPan.y) / gestureRef.current.startZoom;
+      const worldX =
+        (anchorX - gestureRef.current.startPan.x) /
+        gestureRef.current.startZoom;
+      const worldY =
+        (anchorY - gestureRef.current.startPan.y) /
+        gestureRef.current.startZoom;
 
       setZoom(nextZoom);
       setPan({
@@ -313,7 +419,10 @@ export default function DrawioPreview() {
       const delta = e.deltaY < 0 ? 1 : -1;
 
       const oldZoom = zoom;
-      const nextZoom = Math.max(0.1, Math.min(3, oldZoom + delta * zoomIntensity * oldZoom));
+      const nextZoom = Math.max(
+        0.1,
+        Math.min(3, oldZoom + delta * zoomIntensity * oldZoom),
+      );
 
       const worldX = (cursorX - pan.x) / oldZoom;
       const worldY = (cursorY - pan.y) / oldZoom;
@@ -325,9 +434,9 @@ export default function DrawioPreview() {
       });
     };
 
-    container.addEventListener('wheel', handleNativeWheel, { passive: false });
+    container.addEventListener("wheel", handleNativeWheel, { passive: false });
     return () => {
-      container.removeEventListener('wheel', handleNativeWheel);
+      container.removeEventListener("wheel", handleNativeWheel);
     };
   }, [setZoom, setPan, zoom, pan]);
 
@@ -356,7 +465,9 @@ export default function DrawioPreview() {
 
   // React to fit trigger from Footer
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { if (fitTrigger > 0) handleFit(); }, [fitTrigger]);
+  useEffect(() => {
+    if (fitTrigger > 0) handleFit();
+  }, [fitTrigger]);
 
   return (
     <div className="relative flex h-full w-full flex-col bg-zinc-950 select-none">
@@ -368,67 +479,108 @@ export default function DrawioPreview() {
               Mode: <span className="text-blue-400 font-semibold">{mode}</span>
             </span>
 
-            {(mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') && (
+            {(mode === "erd" ||
+              mode === "lrs" ||
+              mode === "transformation" ||
+              mode === "visual" ||
+              mode === "class") && (
               <>
                 <div className="w-px h-4 bg-zinc-800 shrink-0" />
 
-                {mode !== 'visual' && (
+                {mode !== "visual" && (
                   <button
                     onClick={() => setShowTableFilter(!showTableFilter)}
                     className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
                       showTableFilter
-                        ? 'border-blue-600/40 bg-blue-950/30 text-blue-400'
-                        : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                        ? "border-blue-600/40 bg-blue-950/30 text-blue-400"
+                        : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     }`}
                     title="Toggle table filter"
                   >
                     <Filter className="h-3.5 w-3.5 shrink-0" />
                     <span className="hidden sm:inline">Filter tables</span>
-                    <span className="text-zinc-500 text-[10px]">({schema.tables.length - excludedTables.length}/{schema.tables.length})</span>
+                    <span className="text-zinc-500 text-[10px]">
+                      ({schema.tables.length - excludedTables.length}/
+                      {schema.tables.length})
+                    </span>
                   </button>
                 )}
 
                 <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden shrink-0">
                   <button
-                    onClick={() => setRelNotation('crowsfoot')}
+                    onClick={() => setRelNotation("crowsfoot")}
                     title="Crow's Foot notation"
                     className={`h-7 px-2.5 text-xs font-medium transition ${
-                      relNotation === 'crowsfoot'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                      relNotation === "crowsfoot"
+                        ? "bg-blue-600 text-white"
+                        : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     }`}
                   >
                     Crow&apos;s Foot
                   </button>
                   <div className="w-px h-4 bg-zinc-700" />
                   <button
-                    onClick={() => setRelNotation('label')}
+                    onClick={() => setRelNotation("label")}
                     title="1:N / M:N label notation"
                     className={`h-7 px-2.5 text-xs font-medium transition ${
-                      relNotation === 'label'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                      relNotation === "label"
+                        ? "bg-blue-600 text-white"
+                        : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     }`}
                   >
                     1:N
                   </button>
                 </div>
 
-                {mode !== 'visual' && (
+                {(mode === "lrs" || mode === "transformation") && (
+                  <div className="flex items-center rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden shrink-0">
+                    <button
+                      onClick={() => setLrsKeyNotation("stars")}
+                      title="Stars key notation (* / **)"
+                      className={`h-7 px-2.5 text-xs font-medium transition ${
+                        lrsKeyNotation === "stars"
+                          ? "bg-blue-600 text-white"
+                          : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      }`}
+                    >
+                      * / ** Keys
+                    </button>
+                    <div className="w-px h-4 bg-zinc-700" />
+                    <button
+                      onClick={() => setLrsKeyNotation("letters")}
+                      title="Letters key notation (PK / FK)"
+                      className={`h-7 px-2.5 text-xs font-medium transition ${
+                        lrsKeyNotation === "letters"
+                          ? "bg-blue-600 text-white"
+                          : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      }`}
+                    >
+                      PK / FK Keys
+                    </button>
+                  </div>
+                )}
+
+                {mode !== "visual" && (
                   <button
-                    onClick={() => triggerAiLabeling().catch((err) => alert(err.message))}
+                    onClick={() =>
+                      triggerAiLabeling().catch((err) => alert(err.message))
+                    }
                     disabled={isAiLoading}
                     className={`flex h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition shrink-0 ${
                       isAiLoading
-                        ? 'border-blue-600/40 bg-blue-950/30 text-blue-400 cursor-not-allowed'
-                        : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                        ? "border-blue-600/40 bg-blue-950/30 text-blue-400 cursor-not-allowed"
+                        : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     }`}
                     title="Auto-label relationships using Gemini AI"
                   >
-                    {isAiLoading
-                      ? <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
-                      : <Sparkles className="h-3.5 w-3.5 text-blue-500 shrink-0" />}
-                    <span className="hidden sm:inline">{isAiLoading ? 'Analyzing...' : 'AI Auto-label'}</span>
+                    {isAiLoading ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {isAiLoading ? "Analyzing..." : "AI Auto-label"}
+                    </span>
                   </button>
                 )}
               </>
@@ -437,27 +589,45 @@ export default function DrawioPreview() {
 
           <div className="relative flex items-center gap-2 shrink-0">
             <button
-              onClick={() => setShowAttrControls((v) => !v)}
+              ref={orbitBtnRef}
+              onClick={() => {
+                if (!showAttrControls && orbitBtnRef.current) {
+                  const r = orbitBtnRef.current.getBoundingClientRect();
+                  setOrbitBtnRect({ top: r.bottom + 4, right: window.innerWidth - r.right });
+                }
+                setShowAttrControls((v) => !v);
+              }}
               className={`flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium transition shrink-0 ${
                 showAttrControls
-                  ? 'border-blue-600/40 bg-blue-950/30 text-blue-400'
-                  : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+                  ? "border-blue-600/40 bg-blue-950/30 text-blue-400"
+                  : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
               }`}
               title="Attribute orbit and radius"
             >
               <Sliders className="h-3.5 w-3.5 shrink-0" />
               <span className="normal-case">Orbit / radius</span>
-              <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${showAttrControls ? 'rotate-180' : ''}`} />
+              <ChevronDown
+                className={`h-3.5 w-3.5 shrink-0 transition-transform ${showAttrControls ? "rotate-180" : ""}`}
+              />
             </button>
 
-            {showAttrControls && (
-              <div className="absolute right-0 top-full mt-2 w-[300px] max-w-[calc(100vw-24px)] rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 shadow-2xl z-30">
+            {showAttrControls && orbitBtnRect && createPortal(
+              <>
+                <div className="fixed inset-0 z-[9999998]" onClick={() => setShowAttrControls(false)} />
+                <div
+                  className="fixed w-[300px] max-w-[calc(100vw-24px)] rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 shadow-2xl z-[9999999]"
+                  style={{ top: orbitBtnRect.top, right: orbitBtnRect.right }}
+                >
                 {selectedAttrMeta ? (
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
                       <div className="min-w-0">
-                        <div className="text-[10px] text-zinc-500 normal-case">Attribute</div>
-                        <div className="truncate text-xs font-semibold text-zinc-100 normal-case">{selectedAttr!.colName}</div>
+                        <div className="text-[10px] text-zinc-500 normal-case">
+                          Attribute
+                        </div>
+                        <div className="truncate text-xs font-semibold text-zinc-100 normal-case">
+                          {selectedAttr!.colName}
+                        </div>
                       </div>
                       <button
                         onClick={() => setShowAttrControls(false)}
@@ -469,10 +639,14 @@ export default function DrawioPreview() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div className="space-y-1">
-                        <div className="text-[10px] text-zinc-500 normal-case">Orbit angle</div>
+                        <div className="text-[10px] text-zinc-500 normal-case">
+                          Orbit angle
+                        </div>
                         <div className="flex items-center justify-between text-[10px] text-blue-400">
                           <span className="normal-case">Current</span>
-                          <span className="font-mono">{selectedAttrMeta.deg}°</span>
+                          <span className="font-mono">
+                            {selectedAttrMeta.deg}°
+                          </span>
                         </div>
                         <input
                           type="range"
@@ -482,17 +656,24 @@ export default function DrawioPreview() {
                           onChange={(e) => {
                             const newDeg = parseInt(e.target.value, 10);
                             const rad = (newDeg * Math.PI) / 180;
-                            setAttrPosition(selectedAttrMeta.key, { ...selectedAttrMeta.pos, angle: rad });
+                            setAttrPosition(selectedAttrMeta.key, {
+                              ...selectedAttrMeta.pos,
+                              angle: rad,
+                            });
                           }}
                           className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
                         />
                       </div>
 
                       <div className="space-y-1">
-                        <div className="text-[10px] text-zinc-500 normal-case">Orbit radius</div>
+                        <div className="text-[10px] text-zinc-500 normal-case">
+                          Orbit radius
+                        </div>
                         <div className="flex items-center justify-between text-[10px] text-blue-400">
                           <span className="normal-case">Current</span>
-                          <span className="font-mono">{selectedAttrMeta.radiusVal}px</span>
+                          <span className="font-mono">
+                            {selectedAttrMeta.radiusVal}px
+                          </span>
                         </div>
                         <input
                           type="range"
@@ -501,7 +682,10 @@ export default function DrawioPreview() {
                           value={selectedAttrMeta.radiusVal}
                           onChange={(e) => {
                             const newRad = parseInt(e.target.value, 10);
-                            setAttrPosition(selectedAttrMeta.key, { ...selectedAttrMeta.pos, radius: newRad });
+                            setAttrPosition(selectedAttrMeta.key, {
+                              ...selectedAttrMeta.pos,
+                              radius: newRad,
+                            });
                           }}
                           className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
                         />
@@ -519,7 +703,9 @@ export default function DrawioPreview() {
                         onClick={() => {
                           resetTableAttrPositions(
                             selectedAttr!.tableName,
-                            selectedAttrMeta.node.table.columns.map((c) => c.name),
+                            selectedAttrMeta.node.table.columns.map(
+                              (c) => c.name,
+                            ),
                           );
                         }}
                         className="flex-1 rounded border border-zinc-800 bg-zinc-950 px-2 py-[5px] text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850 normal-case"
@@ -533,19 +719,27 @@ export default function DrawioPreview() {
                     Tap an attribute to edit orbit and radius.
                   </div>
                 )}
-              </div>
+                </div>
+              </>,
+              document.body,
             )}
           </div>
         </div>
 
-        {(mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') && (
+        {(mode === "erd" ||
+          mode === "lrs" ||
+          mode === "transformation" ||
+          mode === "visual" ||
+          mode === "class") && (
           <div className="hidden min-h-12 items-center justify-between gap-3 border-t border-zinc-800 px-3 py-2 overflow-x-auto scrollbar-minimal">
             <div className="flex min-w-0 items-center gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500 shrink-0">
                 Mode detail
               </span>
               <span className="text-xs text-zinc-300 shrink-0">
-                {selectedEntityName ? `Entity: ${selectedEntityName}` : 'Tap an entity to inspect it'}
+                {selectedEntityName
+                  ? `Entity: ${selectedEntityName}`
+                  : "Tap an entity to inspect it"}
               </span>
               {selectedEntityTable && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] text-zinc-400 shrink-0">
@@ -563,24 +757,41 @@ export default function DrawioPreview() {
                 </span>
                 <div className="flex min-w-0 items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-2 py-1.5">
                   <div className="min-w-[120px]">
-                    <div className="text-[10px] text-zinc-500 font-mono">Attribute</div>
-                    <div className="text-[11px] font-semibold text-blue-400 truncate">{selectedAttr.colName}</div>
+                    <div className="text-[10px] text-zinc-500 font-mono">
+                      Attribute
+                    </div>
+                    <div className="text-[11px] font-semibold text-blue-400 truncate">
+                      {selectedAttr.colName}
+                    </div>
                   </div>
                   <div className="w-px h-8 bg-zinc-800 shrink-0" />
                   <div className="flex flex-col gap-1 min-w-[180px]">
                     <div className="flex justify-between text-[10px] font-medium">
                       <span className="text-zinc-400">Orbit</span>
-                      <span className="text-blue-400 font-mono">{Math.round(((() => {
-                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
-                        if (!node) return 0;
-                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
-                        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
-                        const pos = attrPositions[key] || { angle: defaultAngle, radius: 85 + node.table.columns.length * 5 };
-                        let deg = Math.round((pos.angle * 180) / Math.PI);
-                        if (deg < 0) deg += 360;
-                        return deg;
-                      })()))}°</span>
+                      <span className="text-blue-400 font-mono">
+                        {Math.round(
+                          (() => {
+                            const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                            const node = layout?.nodes.find(
+                              (n) => n.table.name === selectedAttr.tableName,
+                            );
+                            if (!node) return 0;
+                            const idx = node.table.columns.findIndex(
+                              (c) => c.name === selectedAttr.colName,
+                            );
+                            const defaultAngle =
+                              (2 * Math.PI * idx) / node.table.columns.length;
+                            const pos = attrPositions[key] || {
+                              angle: defaultAngle,
+                              radius: 85 + node.table.columns.length * 5,
+                            };
+                            let deg = Math.round((pos.angle * 180) / Math.PI);
+                            if (deg < 0) deg += 360;
+                            return deg;
+                          })(),
+                        )}
+                        °
+                      </span>
                     </div>
                     <input
                       type="range"
@@ -588,22 +799,39 @@ export default function DrawioPreview() {
                       max="360"
                       value={(() => {
                         const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        const node = layout?.nodes.find(
+                          (n) => n.table.name === selectedAttr.tableName,
+                        );
                         if (!node) return 0;
-                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
-                        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
-                        const pos = attrPositions[key] || { angle: defaultAngle, radius: 85 + node.table.columns.length * 5 };
+                        const idx = node.table.columns.findIndex(
+                          (c) => c.name === selectedAttr.colName,
+                        );
+                        const defaultAngle =
+                          (2 * Math.PI * idx) / node.table.columns.length;
+                        const pos = attrPositions[key] || {
+                          angle: defaultAngle,
+                          radius: 85 + node.table.columns.length * 5,
+                        };
                         let deg = Math.round((pos.angle * 180) / Math.PI);
                         if (deg < 0) deg += 360;
                         return deg;
                       })()}
                       onChange={(e) => {
                         const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        const node = layout?.nodes.find(
+                          (n) => n.table.name === selectedAttr.tableName,
+                        );
                         if (!node) return;
-                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
-                        const defaultRadius = 85 + node.table.columns.length * 5;
-                        const current = attrPositions[key] || { angle: (2 * Math.PI * idx) / node.table.columns.length, radius: defaultRadius };
+                        const idx = node.table.columns.findIndex(
+                          (c) => c.name === selectedAttr.colName,
+                        );
+                        const defaultRadius =
+                          85 + node.table.columns.length * 5;
+                        const current = attrPositions[key] || {
+                          angle:
+                            (2 * Math.PI * idx) / node.table.columns.length,
+                          radius: defaultRadius,
+                        };
                         const newDeg = parseInt(e.target.value, 10);
                         const rad = (newDeg * Math.PI) / 180;
                         setAttrPosition(key, { ...current, angle: rad });
@@ -614,15 +842,27 @@ export default function DrawioPreview() {
                   <div className="flex flex-col gap-1 min-w-[180px]">
                     <div className="flex justify-between text-[10px] font-medium">
                       <span className="text-zinc-400">Radius</span>
-                      <span className="text-blue-400 font-mono">{(() => {
-                        const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
-                        if (!node) return 0;
-                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
-                        const defaultRadius = 85 + node.table.columns.length * 5;
-                        const pos = attrPositions[key] || { angle: (2 * Math.PI * idx) / node.table.columns.length, radius: defaultRadius };
-                        return Math.round(pos.radius);
-                      })()}px</span>
+                      <span className="text-blue-400 font-mono">
+                        {(() => {
+                          const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
+                          const node = layout?.nodes.find(
+                            (n) => n.table.name === selectedAttr.tableName,
+                          );
+                          if (!node) return 0;
+                          const idx = node.table.columns.findIndex(
+                            (c) => c.name === selectedAttr.colName,
+                          );
+                          const defaultRadius =
+                            85 + node.table.columns.length * 5;
+                          const pos = attrPositions[key] || {
+                            angle:
+                              (2 * Math.PI * idx) / node.table.columns.length,
+                            radius: defaultRadius,
+                          };
+                          return Math.round(pos.radius);
+                        })()}
+                        px
+                      </span>
                     </div>
                     <input
                       type="range"
@@ -630,20 +870,37 @@ export default function DrawioPreview() {
                       max="350"
                       value={(() => {
                         const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        const node = layout?.nodes.find(
+                          (n) => n.table.name === selectedAttr.tableName,
+                        );
                         if (!node) return 0;
-                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
-                        const defaultRadius = 85 + node.table.columns.length * 5;
-                        const pos = attrPositions[key] || { angle: (2 * Math.PI * idx) / node.table.columns.length, radius: defaultRadius };
+                        const idx = node.table.columns.findIndex(
+                          (c) => c.name === selectedAttr.colName,
+                        );
+                        const defaultRadius =
+                          85 + node.table.columns.length * 5;
+                        const pos = attrPositions[key] || {
+                          angle:
+                            (2 * Math.PI * idx) / node.table.columns.length,
+                          radius: defaultRadius,
+                        };
                         return Math.round(pos.radius);
                       })()}
                       onChange={(e) => {
                         const key = `${selectedAttr.tableName}-${selectedAttr.colName}`;
-                        const node = layout?.nodes.find((n) => n.table.name === selectedAttr.tableName);
+                        const node = layout?.nodes.find(
+                          (n) => n.table.name === selectedAttr.tableName,
+                        );
                         if (!node) return;
-                        const idx = node.table.columns.findIndex((c) => c.name === selectedAttr.colName);
-                        const defaultAngle = (2 * Math.PI * idx) / node.table.columns.length;
-                        const current = attrPositions[key] || { angle: defaultAngle, radius: 85 + node.table.columns.length * 5 };
+                        const idx = node.table.columns.findIndex(
+                          (c) => c.name === selectedAttr.colName,
+                        );
+                        const defaultAngle =
+                          (2 * Math.PI * idx) / node.table.columns.length;
+                        const current = attrPositions[key] || {
+                          angle: defaultAngle,
+                          radius: 85 + node.table.columns.length * 5,
+                        };
                         const newRad = parseInt(e.target.value, 10);
                         setAttrPosition(key, { ...current, radius: newRad });
                       }}
@@ -653,7 +910,9 @@ export default function DrawioPreview() {
                 </div>
               </div>
             ) : (
-              <span className="text-[10px] text-zinc-500">Tap an attribute to edit orbit and radius.</span>
+              <span className="text-[10px] text-zinc-500">
+                Tap an attribute to edit orbit and radius.
+              </span>
             )}
           </div>
         )}
@@ -666,75 +925,95 @@ export default function DrawioPreview() {
       >
         {error && (
           <div className="absolute inset-x-4 top-4 bg-red-950/70 border border-red-900 text-red-200 p-4 rounded-lg z-20 flex flex-col gap-1">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-red-400">Compilation Error</h4>
+            <h4 className="text-xs font-bold uppercase tracking-wider text-red-400">
+              Compilation Error
+            </h4>
             <p className="text-xs font-medium leading-relaxed">{error}</p>
           </div>
         )}
 
-        {showTableFilter && (mode === 'erd' || mode === 'lrs' || mode === 'transformation') && (
-          <div className="absolute left-6 top-6 bottom-6 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none max-h-[85%] touch-auto" data-canvas-interactive="true" onPointerDown={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
-              <div className="flex items-center gap-1.5">
-                <Filter className="h-4 w-4 text-blue-500" />
-                <h4 className="text-xs font-semibold text-zinc-200">Filter database tables</h4>
-              </div>
-              {excludedTables.length > 0 && (
-                <button
-                  onClick={clearExcludedTables}
-                  className="text-[10px] font-semibold text-blue-500 hover:text-blue-450 hover:underline"
-                >
-                  Check all
-                </button>
-              )}
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 max-h-[calc(100%-40px)]">
-              {schema.tables.map((t) => {
-                const isChecked = !excludedTables.includes(t.name.toLowerCase());
-                return (
-                  <label
-                    key={t.name}
-                    className={`flex items-center justify-between p-2 rounded border transition cursor-pointer ${
-                      isChecked
-                        ? 'bg-zinc-950 border-zinc-800 text-zinc-200 hover:text-zinc-100'
-                        : 'bg-zinc-950/20 border-zinc-900/50 text-zinc-500 hover:text-zinc-400'
-                    }`}
+        {showTableFilter &&
+          (mode === "erd" || mode === "lrs" || mode === "transformation" || mode === "class") && (
+            <div
+              className="absolute left-6 top-6 bottom-6 w-64 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-20 select-none max-h-[85%] touch-auto"
+              data-canvas-interactive="true"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
+                <div className="flex items-center gap-1.5">
+                  <Filter className="h-4 w-4 text-blue-500" />
+                  <h4 className="text-xs font-semibold text-zinc-200">
+                    Filter database tables
+                  </h4>
+                </div>
+                {excludedTables.length > 0 && (
+                  <button
+                    onClick={clearExcludedTables}
+                    className="text-[10px] font-semibold text-blue-500 hover:text-blue-450 hover:underline"
                   >
-                    <span className="text-xs font-mono font-medium truncate max-w-[180px]">{t.name}</span>
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => toggleTableExclusion(t.name)}
-                      className="h-3.5 w-3.5 rounded border-zinc-800 text-blue-600 focus:ring-blue-500 bg-zinc-900"
-                    />
-                  </label>
-                );
-              })}
+                    Check all
+                  </button>
+                )}
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-1.5 pr-1 max-h-[calc(100%-40px)]">
+                {schema.tables.map((t) => {
+                  const isChecked = !excludedTables.includes(
+                    t.name.toLowerCase(),
+                  );
+                  return (
+                    <label
+                      key={t.name}
+                      className={`flex items-center justify-between p-2 rounded border transition cursor-pointer ${
+                        isChecked
+                          ? "bg-zinc-950 border-zinc-800 text-zinc-200 hover:text-zinc-100"
+                          : "bg-zinc-950/20 border-zinc-900/50 text-zinc-500 hover:text-zinc-400"
+                      }`}
+                    >
+                      <span className="text-xs font-mono font-medium truncate max-w-[180px]">
+                        {t.name}
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => toggleTableExclusion(t.name)}
+                        className="h-3.5 w-3.5 rounded border-zinc-800 text-blue-600 focus:ring-blue-500 bg-zinc-900"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="text-[10px] text-zinc-500 mt-auto border-t border-zinc-800 pt-2 flex items-center justify-between">
+                <span>
+                  Checked: {schema.tables.length - excludedTables.length} /{" "}
+                  {schema.tables.length}
+                </span>
+                <button
+                  onClick={() => setShowTableFilter(false)}
+                  className="text-blue-500 hover:underline font-semibold"
+                >
+                  Close panel
+                </button>
+              </div>
             </div>
-            
-            <div className="text-[10px] text-zinc-500 mt-auto border-t border-zinc-800 pt-2 flex items-center justify-between">
-              <span>Checked: {schema.tables.length - excludedTables.length} / {schema.tables.length}</span>
-              <button
-                onClick={() => setShowTableFilter(false)}
-                className="text-blue-500 hover:underline font-semibold"
-              >
-                Close panel
-              </button>
-            </div>
-          </div>
-        )}
+          )}
 
         {selectedEntityName && selectedEntityTable && !entityInfoCollapsed && (
           <div
-            className="absolute right-4 top-4 z-40 w-fit min-w-[18rem] max-w-[calc(100vw-24px)] rounded-xl border border-zinc-800 bg-zinc-900/95 p-3 shadow-2xl backdrop-blur-sm select-none"
+            className="absolute right-4 top-4 z-10 w-fit min-w-[18rem] max-w-[calc(100vw-24px)] rounded-xl border border-zinc-800 bg-zinc-900/95 p-3 shadow-2xl backdrop-blur-sm select-none"
             data-canvas-interactive="true"
             onPointerDown={(e) => e.stopPropagation()}
             onWheel={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800 pb-2">
               <div className="min-w-0">
-                <div className="text-sm font-bold text-zinc-100 normal-case">Entity info</div>
-                <div className="truncate text-sm font-semibold text-zinc-100">{selectedEntityName}</div>
+                <div className="text-sm font-bold text-zinc-100 normal-case">
+                  Entity info
+                </div>
+                <div className="truncate text-sm font-semibold text-zinc-100">
+                  {selectedEntityName}
+                </div>
               </div>
               <button
                 onClick={() => setEntityInfoCollapsed(true)}
@@ -747,29 +1026,43 @@ export default function DrawioPreview() {
             <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
               <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5">
                 <div className="text-zinc-500">Columns</div>
-                <div className="font-semibold text-zinc-100">{selectedEntityTable.columns.length}</div>
+                <div className="font-semibold text-zinc-100">
+                  {selectedEntityTable.columns.length}
+                </div>
               </div>
               <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5">
                 <div className="text-zinc-500">PK</div>
-                <div className="font-semibold text-blue-400">{selectedEntityTable.primaryKey.length}</div>
+                <div className="font-semibold text-blue-400">
+                  {selectedEntityTable.primaryKey.length}
+                </div>
               </div>
               <div className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5">
                 <div className="text-zinc-500">FK</div>
-                <div className="font-semibold text-violet-400">{selectedEntityTable.foreignKeys.length}</div>
+                <div className="font-semibold text-violet-400">
+                  {selectedEntityTable.foreignKeys.length}
+                </div>
               </div>
             </div>
 
             <div className="mt-2">
-              <div className="text-[10px] text-zinc-500 normal-case">Related tables</div>
+              <div className="text-[10px] text-zinc-500 normal-case">
+                Related tables
+              </div>
               <div className="mt-1">
                 {selectedEntityRelations.length > 0 ? (
                   <ul className="space-y-1 text-[10px] text-zinc-300">
                     {selectedEntityRelations.map((rel) => (
-                      <li key={rel.edgeId} className="flex items-start gap-1.5 leading-relaxed whitespace-nowrap">
+                      <li
+                        key={rel.edgeId}
+                        className="flex items-start gap-1.5 leading-relaxed whitespace-nowrap"
+                      >
                         <span className="text-zinc-500">-</span>
                         <span className="min-w-0">
                           <span className="text-zinc-200">{rel.verb}</span>
-                          <span className="text-blue-400"> {rel.cardinality}</span>
+                          <span className="text-blue-400">
+                            {" "}
+                            {rel.cardinality}
+                          </span>
                           <span className="text-zinc-500"> - </span>
                           <button
                             type="button"
@@ -778,14 +1071,18 @@ export default function DrawioPreview() {
                             title={`Focus ${rel.otherTable}`}
                           >
                             <span>{rel.otherTable}</span>
-                            <span aria-hidden="true" className="text-blue-500">↗</span>
+                            <span aria-hidden="true" className="text-blue-500">
+                              ↗
+                            </span>
                           </button>
                         </span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <span className="text-[10px] text-zinc-500">No relations</span>
+                  <span className="text-[10px] text-zinc-500">
+                    No relations
+                  </span>
                 )}
               </div>
             </div>
@@ -797,19 +1094,38 @@ export default function DrawioPreview() {
             )}
 
             <div className="mt-2">
-              <div className="text-[10px] text-zinc-500 normal-case">Columns</div>
+              <div className="text-[10px] text-zinc-500 normal-case">
+                Columns
+              </div>
               <div className="scrollbar-mini mt-1 max-h-28 space-y-1 overflow-y-auto pr-1">
                 {selectedEntityTable.columns.map((col) => {
-                  const isPk = selectedEntityTable.primaryKey.includes(col.name);
+                  const isPk = selectedEntityTable.primaryKey.includes(
+                    col.name,
+                  );
                   const isFk = selectedEntityTable.foreignKeys.some((fk) =>
-                    fk.columns.map((c) => c.toLowerCase()).includes(col.name.toLowerCase()),
+                    fk.columns
+                      .map((c) => c.toLowerCase())
+                      .includes(col.name.toLowerCase()),
                   );
                   return (
-                    <div key={col.name} className="flex items-center justify-between gap-2 text-[10px] leading-relaxed">
-                      <span className="min-w-0 truncate text-zinc-200 normal-case">{col.name}</span>
+                    <div
+                      key={col.name}
+                      className="flex items-center justify-between gap-2 text-[10px] leading-relaxed"
+                    >
+                      <span className="min-w-0 truncate text-zinc-200 normal-case">
+                        {col.name}
+                      </span>
                       <span className="ml-2 flex items-center gap-1 shrink-0">
-                        {isPk && <span className="rounded border border-blue-500/30 px-1 py-0.5 text-blue-400">PK</span>}
-                        {isFk && <span className="rounded border border-amber-500/30 px-1 py-0.5 text-amber-300">FK</span>}
+                        {isPk && (
+                          <span className="rounded border border-blue-500/30 px-1 py-0.5 text-blue-400">
+                            PK
+                          </span>
+                        )}
+                        {isFk && (
+                          <span className="rounded border border-amber-500/30 px-1 py-0.5 text-amber-300">
+                            FK
+                          </span>
+                        )}
                       </span>
                     </div>
                   );
@@ -822,19 +1138,21 @@ export default function DrawioPreview() {
         {selectedEntityName && selectedEntityTable && entityInfoCollapsed && (
           <button
             onClick={() => setEntityInfoCollapsed(false)}
-            className="absolute right-4 top-4 z-40 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/95 px-3 py-2 shadow-2xl backdrop-blur-sm hover:bg-zinc-800 transition-colors"
+            className="absolute right-4 top-4 z-10 flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/95 px-3 py-2 shadow-2xl backdrop-blur-sm hover:bg-zinc-800 transition-colors"
             data-canvas-interactive="true"
             onPointerDown={(e) => e.stopPropagation()}
           >
             <Database className="h-3.5 w-3.5 text-blue-500" />
-            <span className="text-xs font-semibold text-zinc-200">{selectedEntityName}</span>
+            <span className="text-xs font-semibold text-zinc-200">
+              {selectedEntityName}
+            </span>
             <ChevronDown className="h-3 w-3 text-zinc-500 -rotate-90" />
           </button>
         )}
 
         {false && selectedAttr && (
           <div
-            className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-30 select-none touch-auto"
+            className="absolute right-6 top-20 w-72 bg-zinc-900 border border-zinc-800 rounded-lg shadow-md p-4 flex flex-col gap-3.5 z-20 select-none touch-auto"
             data-canvas-interactive="true"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
@@ -842,7 +1160,9 @@ export default function DrawioPreview() {
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
               <div className="flex items-center gap-1.5">
                 <Sliders className="h-4 w-4 text-blue-500" />
-                <h4 className="text-xs font-semibold text-zinc-200">Attribute Orbit & Radius</h4>
+                <h4 className="text-xs font-semibold text-zinc-200">
+                  Attribute Orbit & Radius
+                </h4>
               </div>
               <button
                 onClick={() => setSelectedAttr(null)}
@@ -854,26 +1174,39 @@ export default function DrawioPreview() {
 
             <div className="space-y-1">
               <div className="text-[10px] text-zinc-500 font-mono">Table</div>
-              <div className="text-xs font-semibold text-zinc-200 truncate">{selectedAttr!.tableName}</div>
+              <div className="text-xs font-semibold text-zinc-200 truncate">
+                {selectedAttr!.tableName}
+              </div>
             </div>
 
             <div className="space-y-1">
-              <div className="text-[10px] text-zinc-500 font-mono">Attribute</div>
-              <div className="text-xs font-semibold text-blue-450 truncate">{selectedAttr!.colName}</div>
+              <div className="text-[10px] text-zinc-500 font-mono">
+                Attribute
+              </div>
+              <div className="text-xs font-semibold text-blue-450 truncate">
+                {selectedAttr!.colName}
+              </div>
             </div>
 
             {/* Sliders */}
             {(() => {
               if (!selectedAttr) return null;
               const key = `${selectedAttr!.tableName}-${selectedAttr!.colName}`;
-              const node = layout?.nodes.find((n) => n.table.name === selectedAttr!.tableName);
+              const node = layout?.nodes.find(
+                (n) => n.table.name === selectedAttr!.tableName,
+              );
               if (!node) return null;
               const N = node!.table.columns.length;
-              const idx = node!.table.columns.findIndex((c) => c.name === selectedAttr!.colName);
+              const idx = node!.table.columns.findIndex(
+                (c) => c.name === selectedAttr!.colName,
+              );
               const defaultAngle = (2 * Math.PI * idx) / N;
               const defaultRadius = 85 + N * 5;
 
-              const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
+              const pos = attrPositions[key] || {
+                angle: defaultAngle,
+                radius: defaultRadius,
+              };
 
               // Convert angle from radians to degrees [0, 360]
               let deg = Math.round((pos.angle * 180) / Math.PI);
@@ -907,7 +1240,9 @@ export default function DrawioPreview() {
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-[10px] font-medium">
                       <span className="text-zinc-400">Orbit Radius</span>
-                      <span className="text-blue-500 font-mono">{radiusVal}px</span>
+                      <span className="text-blue-500 font-mono">
+                        {radiusVal}px
+                      </span>
                     </div>
                     <input
                       type="range"
@@ -937,7 +1272,7 @@ export default function DrawioPreview() {
                         onClick={() => {
                           resetTableAttrPositions(
                             selectedAttr!.tableName,
-                            node!.table.columns.map((c) => c.name)
+                            node!.table.columns.map((c) => c.name),
                           );
                         }}
                         className="flex-1 py-1.5 text-center text-[10px] font-semibold text-zinc-400 bg-zinc-950 border border-zinc-800 rounded hover:bg-zinc-850 hover:text-zinc-200 transition"
@@ -947,7 +1282,11 @@ export default function DrawioPreview() {
                     </div>
                     <button
                       onClick={() => {
-                        if (confirm('Reset all attribute positions in the diagram?')) {
+                        if (
+                          confirm(
+                            "Reset all attribute positions in the diagram?",
+                          )
+                        ) {
                           resetAllAttrPositions();
                         }
                       }}
@@ -963,10 +1302,10 @@ export default function DrawioPreview() {
         )}
 
         <div
-          className={`absolute inset-0 z-0 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'} touch-none overscroll-none`}
+          className={`absolute inset-0 z-0 ${isPanning ? "cursor-grabbing" : "cursor-grab"} touch-none overscroll-none`}
           style={{
-            touchAction: 'none',
-            overscrollBehavior: 'none',
+            touchAction: "none",
+            overscrollBehavior: "none",
           }}
           onPointerDown={handleCanvasPointerDown}
           onPointerMove={handleCanvasPointerMove}
@@ -981,752 +1320,2314 @@ export default function DrawioPreview() {
             className="absolute inset-0 pointer-events-none"
             style={{
               backgroundImage: [
-                'linear-gradient(to right, rgba(63, 63, 70, 0.42) 1px, transparent 1px)',
-                'linear-gradient(to bottom, rgba(63, 63, 70, 0.42) 1px, transparent 1px)',
-                'linear-gradient(to right, rgba(39, 39, 42, 0.55) 1px, transparent 1px)',
-                'linear-gradient(to bottom, rgba(39, 39, 42, 0.55) 1px, transparent 1px)',
-              ].join(', '),
+                "linear-gradient(to right, rgba(63, 63, 70, 0.42) 1px, transparent 1px)",
+                "linear-gradient(to bottom, rgba(63, 63, 70, 0.42) 1px, transparent 1px)",
+                "linear-gradient(to right, rgba(39, 39, 42, 0.55) 1px, transparent 1px)",
+                "linear-gradient(to bottom, rgba(39, 39, 42, 0.55) 1px, transparent 1px)",
+              ].join(", "),
               backgroundSize: [
                 `${Math.max(16, 24 * zoom)}px ${Math.max(16, 24 * zoom)}px`,
                 `${Math.max(16, 24 * zoom)}px ${Math.max(16, 24 * zoom)}px`,
                 `${Math.max(64, 96 * zoom)}px ${Math.max(64, 96 * zoom)}px`,
                 `${Math.max(64, 96 * zoom)}px ${Math.max(64, 96 * zoom)}px`,
-              ].join(', '),
+              ].join(", "),
               backgroundPosition: [
                 `${((pan.x % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px ${((pan.y % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px`,
                 `${((pan.x % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px ${((pan.y % Math.max(16, 24 * zoom)) + Math.max(16, 24 * zoom)) % Math.max(16, 24 * zoom)}px`,
                 `${((pan.x % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px ${((pan.y % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px`,
                 `${((pan.x % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px ${((pan.y % Math.max(64, 96 * zoom)) + Math.max(64, 96 * zoom)) % Math.max(64, 96 * zoom)}px`,
-              ].join(', '),
+              ].join(", "),
               opacity: 0.55,
             }}
           />
 
-        {hasDiagramData ? (
-          <svg
-            id="fooldb-svg"
-            width={canvasWidth}
-            height={canvasHeight}
+          {hasDiagramData ? (
+            <svg
+              id="fooldb-svg"
+              width={canvasWidth}
+              height={canvasHeight}
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                transformOrigin: '0 0',
-                transition: isPanning ? 'none' : 'transform 0.02s linear',
-                willChange: 'transform',
+                transformOrigin: "0 0",
+                transition: isPanning ? "none" : "transform 0.02s linear",
+                willChange: "transform",
               }}
-            className="absolute shadow-2xl"
-          >
-            {/* SVG Markers / Arrowdefs */}
-            <defs>
-              {/* Crow's Foot End Markers */}
-              <marker id="one-marker" markerWidth="8" markerHeight="8" refX="0" refY="4" orient="auto" markerUnits="strokeWidth">
-                <circle cx="4" cy="4" r="2.5" fill="none" stroke="#6366f1" strokeWidth="1.5" />
-              </marker>
-              <marker id="many-marker" markerWidth="14" markerHeight="12" refX="14" refY="6" orient="auto" markerUnits="strokeWidth">
-                <path d="M 2 2 L 14 6 L 2 10" fill="none" stroke="#6366f1" strokeWidth="1.5" />
-              </marker>
-              <marker id="one-one-marker" markerWidth="12" markerHeight="12" refX="12" refY="6" orient="auto" markerUnits="strokeWidth">
-                <path d="M 5 2 L 5 10 M 9 2 L 9 10" fill="none" stroke="#6366f1" strokeWidth="1.5" />
-              </marker>
-              
-              {/* UML Activity Arrow */}
-              <marker id="activity-arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
-                <path d="M 0 1.5 L 10 5 L 0 8.5 Z" fill="#6366f1" />
-              </marker>
-              <marker id="sequence-arrow" markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto" markerUnits="strokeWidth">
-                <path d="M 0 1.5 L 10 5 L 0 8.5 Z" fill="#6366f1" />
-              </marker>
-            </defs>
+              className="absolute shadow-2xl"
+            >
+              {/* SVG Markers / Arrowdefs */}
+              <defs>
+                {/* Crow's Foot End Markers */}
+                <marker
+                  id="one-marker"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="0"
+                  refY="4"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <circle
+                    cx="4"
+                    cy="4"
+                    r="2.5"
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="1.5"
+                  />
+                </marker>
+                <marker
+                  id="many-marker"
+                  markerWidth="14"
+                  markerHeight="12"
+                  refX="14"
+                  refY="6"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path
+                    d="M 2 2 L 14 6 L 2 10"
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="1.5"
+                  />
+                </marker>
+                <marker
+                  id="one-one-marker"
+                  markerWidth="12"
+                  markerHeight="12"
+                  refX="12"
+                  refY="6"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path
+                    d="M 5 2 L 5 10 M 9 2 L 9 10"
+                    fill="none"
+                    stroke="#6366f1"
+                    strokeWidth="1.5"
+                  />
+                </marker>
 
-            {/* A. RENDER MODE: CHEN ERD + VISUAL BUILDER */}
-            {(mode === 'erd' || mode === 'visual') && layout && (() => {
-              // Helper to get intersection point on box border (120x45 rect)
-              const getBorderPoint = (center: {x: number; y: number}, toward: {x: number; y: number}, w = 120, h = 45) => {
-                const dx = toward.x - center.x;
-                const dy = toward.y - center.y;
-                if (dx === 0 && dy === 0) return center;
-                const absDx = Math.abs(dx);
-                const absDy = Math.abs(dy);
-                const hw = w / 2;
-                const hh = h / 2;
-                const scaleX = dx !== 0 ? hw / absDx : Infinity;
-                const scaleY = dy !== 0 ? hh / absDy : Infinity;
-                const scale = Math.min(scaleX, scaleY);
-                return {
-                  x: center.x + dx * scale,
-                  y: center.y + dy * scale
-                };
-              };
+                {/* UML Activity Arrow */}
+                <marker
+                  id="activity-arrow"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="10"
+                  refY="5"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M 0 1.5 L 10 5 L 0 8.5 Z" fill="#6366f1" />
+                </marker>
+                <marker
+                  id="sequence-arrow"
+                  markerWidth="10"
+                  markerHeight="10"
+                  refX="10"
+                  refY="5"
+                  orient="auto"
+                  markerUnits="strokeWidth"
+                >
+                  <path d="M 0 1.5 L 10 5 L 0 8.5 Z" fill="#6366f1" />
+                </marker>
+              </defs>
 
-              // ──── Pre-compute diamond positions for ALL edges ────
-              const polyLen = (pts: {x:number;y:number}[]) => {
-                let t = 0;
-                for (let i = 1; i < pts.length; i++) {
-                  const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
-                  t += Math.sqrt(dx*dx + dy*dy);
-                }
-                return t;
-              };
-              const ptAtT = (pts: {x:number;y:number}[], t: number) => {
-                const total = polyLen(pts);
-                let rem = Math.max(0, Math.min(1, t)) * total;
-                for (let i = 1; i < pts.length; i++) {
-                  const dx = pts[i].x - pts[i-1].x, dy = pts[i].y - pts[i-1].y;
-                  const seg = Math.sqrt(dx*dx + dy*dy);
-                  if (rem <= seg || i === pts.length - 1) {
-                    const f = seg > 0 ? rem / seg : 0;
-                    return { x: pts[i-1].x + dx*f, y: pts[i-1].y + dy*f };
-                  }
-                  rem -= seg;
-                }
-                return pts[pts.length - 1];
-              };
+              {/* A. RENDER MODE: CHEN ERD + VISUAL BUILDER */}
+              {(mode === "erd" || mode === "visual") &&
+                layout &&
+                (() => {
+                  // Helper to get intersection point on box border (120x45 rect)
+                  const getBorderPoint = (
+                    center: { x: number; y: number },
+                    toward: { x: number; y: number },
+                    w = 120,
+                    h = 45,
+                  ) => {
+                    const dx = toward.x - center.x;
+                    const dy = toward.y - center.y;
+                    if (dx === 0 && dy === 0) return center;
+                    const absDx = Math.abs(dx);
+                    const absDy = Math.abs(dy);
+                    const hw = w / 2;
+                    const hh = h / 2;
+                    const scaleX = dx !== 0 ? hw / absDx : Infinity;
+                    const scaleY = dy !== 0 ? hh / absDy : Infinity;
+                    const scale = Math.min(scaleX, scaleY);
+                    return {
+                      x: center.x + dx * scale,
+                      y: center.y + dy * scale,
+                    };
+                  };
 
-              const diamonds = layout.edges.map(edge => ({
-                edge, rel: edge.relationship, t: 0.5, x: 0, y: 0, w: 120, h: 45
-              }));
-              diamonds.forEach(d => { const p = ptAtT(d.edge.points, d.t); d.x = p.x; d.y = p.y; });
-
-              // Resolve diamond collisions by sliding along path
-              for (let iter = 0; iter < 30; iter++) {
-                let moved = false;
-                for (let i = 0; i < diamonds.length; i++) {
-                  for (let j = i + 1; j < diamonds.length; j++) {
-                    const a = diamonds[i], b = diamonds[j];
-                    if (Math.abs(a.x - b.x) < (a.w + b.w)/2 + 4 && Math.abs(a.y - b.y) < (a.h + b.h)/2 + 4) {
-                      moved = true;
-                      a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
-                      b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
-                      const pa = ptAtT(a.edge.points, a.t), pb = ptAtT(b.edge.points, b.t);
-                      a.x = pa.x; a.y = pa.y; b.x = pb.x; b.y = pb.y;
+                  // ──── Pre-compute diamond positions for ALL edges ────
+                  const polyLen = (pts: { x: number; y: number }[]) => {
+                    let t = 0;
+                    for (let i = 1; i < pts.length; i++) {
+                      const dx = pts[i].x - pts[i - 1].x,
+                        dy = pts[i].y - pts[i - 1].y;
+                      t += Math.sqrt(dx * dx + dy * dy);
                     }
-                  }
-                }
-                if (!moved) break;
-              }
-
-              // Build a lookup: edgeId → diamond {x, y}
-              const diamondMap = new Map<string, {x: number; y: number}>();
-              diamonds.forEach(d => diamondMap.set(d.edge.id, { x: d.x, y: d.y }));
-
-              // Helper: unit vector
-              const uv = (a: {x:number;y:number}, b: {x:number;y:number}) => {
-                const dx = b.x - a.x, dy = b.y - a.y, l = Math.sqrt(dx*dx+dy*dy) || 1;
-                return { x: dx/l, y: dy/l };
-              };
-
-              // Helper to split orthogonal points at the diamond position t
-              const getSplitPaths = (pts: {x:number; y:number}[], t: number, dm: {x: number; y: number}) => {
-                const total = polyLen(pts);
-                const target = t * total;
-
-                let current = 0;
-                const path1: {x:number; y:number}[] = [];
-                const path2: {x:number; y:number}[] = [];
-
-                path1.push(pts[0]);
-                let dmPlaced = false;
-
-                for (let i = 1; i < pts.length; i++) {
-                  const p1 = pts[i-1];
-                  const p2 = pts[i];
-                  const dx = p2.x - p1.x;
-                  const dy = p2.y - p1.y;
-                  const seg = Math.sqrt(dx*dx + dy*dy);
-
-                  if (!dmPlaced) {
-                    if (current + seg < target) {
-                      path1.push(p2);
-                    } else {
-                      path1.push(dm);
-                      path2.push(dm);
-                      path2.push(p2);
-                      dmPlaced = true;
+                    return t;
+                  };
+                  const ptAtT = (
+                    pts: { x: number; y: number }[],
+                    t: number,
+                  ) => {
+                    const total = polyLen(pts);
+                    let rem = Math.max(0, Math.min(1, t)) * total;
+                    for (let i = 1; i < pts.length; i++) {
+                      const dx = pts[i].x - pts[i - 1].x,
+                        dy = pts[i].y - pts[i - 1].y;
+                      const seg = Math.sqrt(dx * dx + dy * dy);
+                      if (rem <= seg || i === pts.length - 1) {
+                        const f = seg > 0 ? rem / seg : 0;
+                        return {
+                          x: pts[i - 1].x + dx * f,
+                          y: pts[i - 1].y + dy * f,
+                        };
+                      }
+                      rem -= seg;
                     }
-                  } else {
-                    path2.push(p2);
-                  }
-                  current += seg;
-                }
+                    return pts[pts.length - 1];
+                  };
 
-                if (!dmPlaced) {
-                  path1.push(dm);
-                  path2.push(dm);
-                  path2.push(pts[pts.length - 1]);
-                }
-
-                const d1 = path1.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-                const d2 = path2.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-
-                return { d1, d2 };
-              };
-
-              return (
-                <>
-                  {/* LAYER 1: Lines split at diamond — Entity -> Diamond -> Entity */}
-                  {layout.edges.map(edge => {
-                    const dm = diamondMap.get(edge.id)!;
-                    const { d1, d2 } = getSplitPaths(edge.points, 0.5, dm);
-                    const isEdgeFocused = selectedEntityName
-                      ? edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName
-                      : false;
-
-                    return (
-                      <g key={`lines_${edge.id}`}>
-                        <path
-                          d={d1}
-                          fill="none"
-                          stroke={isEdgeFocused ? '#60a5fa' : '#2563eb'}
-                          strokeWidth={isEdgeFocused ? 2.25 : 1.5}
-                          className={isEdgeFocused ? 'diagram-rel-line diagram-rel-line--active' : 'diagram-rel-line'}
-                        />
-                        <path
-                          d={d2}
-                          fill="none"
-                          stroke={isEdgeFocused ? '#60a5fa' : '#2563eb'}
-                          strokeWidth={isEdgeFocused ? 2.25 : 1.5}
-                          className={isEdgeFocused ? 'diagram-rel-line diagram-rel-line--active' : 'diagram-rel-line'}
-                        />
-                      </g>
-                    );
-                  })}
-
-                  {/* LAYER 2: Entity boxes + orbiting attributes */}
-                  {layout.nodes.map((node) => {
-                    const table = node.table;
-                    const cx = node.x + node.width / 2;
-                    const cy = node.y + node.height / 2;
-                    const N = table.columns.length;
-                    const isEntitySelected = selectedEntityName === table.name;
-                    const foreignKeyColumns = new Set(
-                      table.foreignKeys.flatMap((fk) => fk.columns.map((c) => c.toLowerCase())),
-                    );
-
-                    const attrs = table.columns.map((col, idx) => {
-                      const key = `${table.name}-${col.name}`;
-                      const defaultAngle = (2 * Math.PI * idx) / N;
-                      const defaultRadius = 85 + N * 5;
-                      const pos = attrPositions[key] || { angle: defaultAngle, radius: defaultRadius };
-                      const w_attr = Math.max(60, col.name.length * 8 + 16);
-                      const h_attr = 30;
-                      return {
-                        col, key, width: w_attr, height: h_attr,
-                        angle: pos.angle, radius: pos.radius,
-                        x: cx + pos.radius * Math.cos(pos.angle),
-                        y: cy + pos.radius * Math.sin(pos.angle)
-                      };
-                    });
-
-                    resolveCollisions(attrs, cx, cy);
-
-                    const selectedAttrInTable = selectedAttr && selectedAttr.tableName === table.name
-                      ? attrs.find(a => a.col.name === selectedAttr.colName) : null;
-
-                    return (
-                      <g
-                        key={node.id}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={() => {
-                          setSelectedEntityName((current) => {
-                            if (current === table.name) {
-                              if (!entityInfoCollapsed) {
-                                setEntityInfoCollapsed(true);
-                                return current;
-                              }
-                              setSelectedAttr(null);
-                              setShowAttrControls(false);
-                              setEntityInfoCollapsed(false);
-                              return null;
-                            }
-                            setSelectedAttr(null);
-                            setShowAttrControls(false);
-                            setEntityInfoCollapsed(false);
-                            return table.name;
-                          });
-                        }}
-                      >
-                        {selectedAttrInTable && (
-                          <circle cx={cx} cy={cy} r={selectedAttrInTable.radius}
-                            fill="none" stroke="#2563eb" strokeWidth={1}
-                            strokeDasharray="4,4" opacity={0.4} />
-                        )}
-
-                        {attrs.map((item) => (
-                          <line key={`line_${item.col.name}`}
-                            x1={cx} y1={cy} x2={item.x} y2={item.y}
-                            stroke={selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name ? '#2563eb' : '#52525b'}
-                            strokeWidth={selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name ? 1.5 : 1}
-                            strokeDasharray={selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name ? '2,2' : 'none'}
-                          />
-                        ))}
-
-                        {attrs.map((item) => {
-                          const isSelected = selectedAttr && selectedAttr.tableName === table.name && selectedAttr.colName === item.col.name;
-                          const isForeignKey = foreignKeyColumns.has(item.col.name.toLowerCase());
-                          const highlightFk = isEntitySelected && isForeignKey;
-                          return (
-                            <g key={`attr_g_${item.col.name}`}
-                              className="cursor-move group select-none origin-center"
-                              onPointerDown={(e) => {
-                                e.stopPropagation();
-                                setDraggingAttr({ tableName: table.name, colName: item.col.name });
-                                setSelectedAttr({ tableName: table.name, colName: item.col.name });
-                                setSelectedEntityName(null);
-                                (e.currentTarget as unknown as Element).setPointerCapture?.(e.pointerId);
-                              }}
-                              onClick={(e) => { e.stopPropagation(); }}
-                            >
-                              <ellipse cx={item.x} cy={item.y} rx={item.width / 2} ry={item.height / 2}
-                                fill={item.col.isPrimaryKey ? '#18181b' : '#09090b'}
-                                stroke={isSelected ? '#fbbf24' : highlightFk ? '#f59e0b' : item.col.isPrimaryKey ? '#2563eb' : '#52525b'}
-                                strokeWidth={isSelected || highlightFk ? 2.5 : 1.5}
-                                className="transition duration-150 group-hover:stroke-blue-400" />
-                              <text x={item.x} y={item.y + 3.5} textAnchor="middle"
-                                fill={isSelected ? '#fbbf24' : highlightFk ? '#f59e0b' : item.col.isPrimaryKey ? '#fa5454' : '#a1a1aa'}
-                                textDecoration={item.col.isPrimaryKey ? 'underline' : 'none'}
-                                className={`text-[10px] ${item.col.isPrimaryKey ? 'italic font-medium' : 'font-normal'}`}
-                              >{item.col.name}</text>
-                            </g>
-                          );
-                        })}
-
-                        <g transform={`translate(${cx - 60}, ${cy - 22.5})`} className="cursor-pointer">
-                          <rect width={120} height={45} rx={6} fill="#18181b"
-                            stroke={isEntitySelected ? '#fbbf24' : table.isJunctionTable ? '#2563eb' : '#52525b'}
-                            strokeWidth={isEntitySelected ? 2.5 : table.isJunctionTable ? 2 : 1.5}
-                            className=""
-                          />
-                          <text x={60} y={27.5} textAnchor="middle" fill="#fafafa" className="text-xs font-medium tracking-wide">{table.name}</text>
-                          {table.isJunctionTable && (
-                            <g transform="translate(35, -16)">
-                              <rect width={50} height={12} rx={3} fill="#2563eb" />
-                              <text x={25} y={8.5} textAnchor="middle" fill="#ffffff" className="text-[7px] font-medium uppercase tracking-wider">Junction</text>
-                            </g>
-                          )}
-                        </g>
-                      </g>
-                    );
-                  })}
-
-                  {/* LAYER 3: Diamonds + crow's foot / labels — on top */}
-                  {diamonds.map((d) => {
-                    const { edge, rel, x: dmX, y: dmY } = d;
-                    const label = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
-                    const cleanLabel = label.replace(/<div>/g, '\n').replace(/<\/div>/g, '');
-                    const lines = cleanLabel.split('\n');
-                    const diamondPts = `${dmX},${dmY - 22.5} ${dmX + 60},${dmY} ${dmX},${dmY + 22.5} ${dmX - 60},${dmY}`;
-
-                    const srcPt = edge.points[0];
-                    const srcPt2 = edge.points[1] ?? srcPt;
-                    const tgtPt = edge.points[edge.points.length - 1];
-                    const tgtPt2 = edge.points[edge.points.length - 2] ?? tgtPt;
-                    const sourceCardinality = rel.sourceCardinality ?? 'one';
-                    const targetCardinality = rel.targetCardinality ?? (rel.type === '1:1' ? 'one' : 'many');
-                    const srcLabel = sourceCardinality === 'many' ? 'N' : '1';
-                    const tgtLabel = targetCardinality === 'many' ? 'N' : '1';
-
-                    const sn = layout.nodes.find(n => n.id === rel.sourceTable);
-                    const tn = layout.nodes.find(n => n.id === rel.targetTable);
-                    const srcCenter = sn ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 } : srcPt;
-                    const tgtCenter = tn ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 } : tgtPt;
-                    const isDiamondFocused = selectedEntityName
-                      ? edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName
-                      : false;
-
-                    const srcBorder = getBorderPoint(srcCenter, srcPt2, 120, 45);
-                    const tgtBorder = getBorderPoint(tgtCenter, tgtPt2, 120, 45);
-
-                    const uSrc = uv(srcCenter, srcPt2);
-                    const uTgt = uv(tgtCenter, tgtPt2);
-
-                    return (
-                      <g key={`overlay_${edge.id}`}>
-                        {relNotation === 'crowsfoot' ? (
-                          <>
-                            {/* Source-side cardinality marker */}
-                            {sourceCardinality === 'one' ? (() => {
-                              const u = uSrc, px = -u.y, py = u.x;
-                              const bx = srcBorder.x + u.x * 10, by = srcBorder.y + u.y * 10;
-                              return <line x1={bx+px*5} y1={by+py*5} x2={bx-px*5} y2={by-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
-                            })() : (() => {
-                              const u = uSrc, px = -u.y, py = u.x;
-                              const far = { x: srcBorder.x + u.x * 12, y: srcBorder.y + u.y * 12 };
-                              return <g>
-                                <line x1={srcBorder.x + px * 5} y1={srcBorder.y + py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                <line x1={srcBorder.x} y1={srcBorder.y} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                <line x1={srcBorder.x - px * 5} y1={srcBorder.y - py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                              </g>;
-                            })()}
-
-                            {/* Target side marker: single tick for 1:1, crow's foot for many */}
-                            {targetCardinality === 'one' ? (() => {
-                              const u = uTgt, px = -u.y, py = u.x;
-                              const bx = tgtBorder.x + u.x * 10, by = tgtBorder.y + u.y * 10;
-                              return <line x1={bx+px*5} y1={by+py*5} x2={bx-px*5} y2={by-py*5} stroke="#6366f1" strokeWidth={2} strokeLinecap="round" />;
-                            })() : (() => {
-                              const u = uTgt, px = -u.y, py = u.x;
-                              const far = { x: tgtBorder.x + u.x * 12, y: tgtBorder.y + u.y * 12 };
-                              return (
-                                <g>
-                                  <line x1={tgtBorder.x + px * 5} y1={tgtBorder.y + py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                  <line x1={tgtBorder.x} y1={tgtBorder.y} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                  <line x1={tgtBorder.x - px * 5} y1={tgtBorder.y - py * 5} x2={far.x} y2={far.y} stroke="#6366f1" strokeWidth={1.5} strokeLinecap="round" />
-                                </g>
-                              );
-                            })()}
-                          </>
-                        ) : (
-                          <>
-                            {/* Text labels: positioned 36px back along the line */}
-                            {(() => {
-                              const u = uSrc, px = -u.y, py = u.x;
-                              const lx = srcBorder.x + u.x*36 + px*14, ly = srcBorder.y + u.y*36 + py*14;
-                              return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
-                                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>{srcLabel}</text></g>);
-                            })()}
-                            {(() => {
-                              const u = uTgt, px = -u.y, py = u.x;
-                              const lx = tgtBorder.x + u.x*36 + px*14, ly = tgtBorder.y + u.y*36 + py*14;
-                              return (<g><rect x={lx-7} y={ly-7} width={14} height={14} rx={4} fill="#09090b" stroke="#6366f1" strokeWidth={1} />
-                                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fill="#a5b4fc" className="pointer-events-none" style={{fontFamily:'monospace',fontSize:'10px',fontWeight:700}}>{tgtLabel}</text></g>);
-                            })()}
-                          </>
-                        )}
-
-                        {/* Diamond — connected to lines */}
-                        <g className="cursor-pointer">
-                          <polygon points={diamondPts} fill="#18181b" stroke={isDiamondFocused ? '#60a5fa' : '#2563eb'} strokeWidth={isDiamondFocused ? 2 : 1.5} />
-                          {lines.length > 1 ? (
-                            <text x={dmX} y={dmY - 3} textAnchor="middle" fill={isDiamondFocused ? '#60a5fa' : '#2563eb'} className="text-[8px] font-medium pointer-events-none">
-                              <tspan x={dmX} dy="0">{lines[0]}</tspan>
-                              <tspan x={dmX} dy="8">{lines[1].replace(/^\/\s*/, '/ ')}</tspan>
-                            </text>
-                          ) : (
-                            <text x={dmX} y={dmY + 3} textAnchor="middle" fill={isDiamondFocused ? '#60a5fa' : '#2563eb'} className="text-[9px] font-medium pointer-events-none">{lines[0]}</text>
-                          )}
-                        </g>
-                      </g>
-                    );
-                  })}
-                </>
-              );
-            })()}
-             {/* B. RENDER MODE: LRS SCHEMA */}
-            {(mode === 'lrs' || mode === 'transformation') && layout && (
-              <>
-                {/* 1. Draw Connectors (Orthogonal lines) */}
-                {layout.edges.map((edge) => {
-                  const rel = edge.relationship;
-                  const isEdgeFocused = selectedEntityName
-                    ? edge.sourceTable === selectedEntityName || edge.targetTable === selectedEntityName
-                    : false;
-                  let pathD = '';
-                  edge.points.forEach((pt, i) => {
-                    pathD += `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y} `;
+                  const diamonds = layout.edges.map((edge) => ({
+                    edge,
+                    rel: edge.relationship,
+                    t: 0.5,
+                    x: 0,
+                    y: 0,
+                    w: 120,
+                    h: 45,
+                  }));
+                  diamonds.forEach((d) => {
+                    const p = ptAtT(d.edge.points, d.t);
+                    d.x = p.x;
+                    d.y = p.y;
                   });
 
-                  return (
-                    <g key={edge.id}>
-                      <path
-                        d={pathD}
-                        fill="none"
-                        stroke={isEdgeFocused ? '#60a5fa' : '#2563eb'}
-                        strokeWidth={isEdgeFocused ? 2.25 : 1.5}
-                        markerStart="url(#one-marker)"
-                        markerEnd={rel.type === '1:1' ? 'url(#one-one-marker)' : 'url(#many-marker)'}
-                        className="diagram-rel-line"
-                      />
-                    </g>
+                  // Resolve diamond collisions by sliding along path
+                  for (let iter = 0; iter < 30; iter++) {
+                    let moved = false;
+                    for (let i = 0; i < diamonds.length; i++) {
+                      for (let j = i + 1; j < diamonds.length; j++) {
+                        const a = diamonds[i],
+                          b = diamonds[j];
+                        if (
+                          Math.abs(a.x - b.x) < (a.w + b.w) / 2 + 4 &&
+                          Math.abs(a.y - b.y) < (a.h + b.h) / 2 + 4
+                        ) {
+                          moved = true;
+                          a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
+                          b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
+                          const pa = ptAtT(a.edge.points, a.t),
+                            pb = ptAtT(b.edge.points, b.t);
+                          a.x = pa.x;
+                          a.y = pa.y;
+                          b.x = pb.x;
+                          b.y = pb.y;
+                        }
+                      }
+                    }
+                    if (!moved) break;
+                  }
+
+                  // Build a lookup: edgeId → diamond {x, y}
+                  const diamondMap = new Map<
+                    string,
+                    { x: number; y: number }
+                  >();
+                  diamonds.forEach((d) =>
+                    diamondMap.set(d.edge.id, { x: d.x, y: d.y }),
                   );
-                })}
 
-                {/* 2. Draw Table Rows Blocks */}
-                {layout.nodes.map((node) => {
-                  const table = node.table;
-                  const cx = node.x + node.width / 2;
-                  const cy = node.y + node.height / 2;
-                  const tWidth = 240;
-                  const tHeight = 42 + table.columns.length * 26 + 8;
-                  const tx = cx - 120;
-                  const ty = cy - tHeight / 2;
+                  // Helper: unit vector
+                  const uv = (
+                    a: { x: number; y: number },
+                    b: { x: number; y: number },
+                  ) => {
+                    const dx = b.x - a.x,
+                      dy = b.y - a.y,
+                      l = Math.sqrt(dx * dx + dy * dy) || 1;
+                    return { x: dx / l, y: dy / l };
+                  };
+
+                  // Helper to split orthogonal points at the diamond position t
+                  const getSplitPaths = (
+                    pts: { x: number; y: number }[],
+                    t: number,
+                    dm: { x: number; y: number },
+                  ) => {
+                    const total = polyLen(pts);
+                    const target = t * total;
+
+                    let current = 0;
+                    const path1: { x: number; y: number }[] = [];
+                    const path2: { x: number; y: number }[] = [];
+
+                    path1.push(pts[0]);
+                    let dmPlaced = false;
+
+                    for (let i = 1; i < pts.length; i++) {
+                      const p1 = pts[i - 1];
+                      const p2 = pts[i];
+                      const dx = p2.x - p1.x;
+                      const dy = p2.y - p1.y;
+                      const seg = Math.sqrt(dx * dx + dy * dy);
+
+                      if (!dmPlaced) {
+                        if (current + seg < target) {
+                          path1.push(p2);
+                        } else {
+                          path1.push(dm);
+                          path2.push(dm);
+                          path2.push(p2);
+                          dmPlaced = true;
+                        }
+                      } else {
+                        path2.push(p2);
+                      }
+                      current += seg;
+                    }
+
+                    if (!dmPlaced) {
+                      path1.push(dm);
+                      path2.push(dm);
+                      path2.push(pts[pts.length - 1]);
+                    }
+
+                    const d1 = path1
+                      .map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+                      .join(" ");
+                    const d2 = path2
+                      .map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+                      .join(" ");
+
+                    return { d1, d2 };
+                  };
 
                   return (
-                    <g key={node.id}>
-                      {/* Outer Card */}
-                      <rect x={tx} y={ty} width={tWidth} height={tHeight} rx={8} fill="#18181b" stroke="#52525b" strokeWidth={1.5} />
-                      {/* Header */}
-                      <path d={`M ${tx} ${ty+8} A 8 8 0 0 1 ${tx+8} ${ty} L ${tx+tWidth-8} ${ty} A 8 8 0 0 1 ${tx+tWidth} ${ty+8} L ${tx+tWidth} ${ty+42} L ${tx} ${ty+42} Z`} fill="#09090b" />
-                      <text x={cx} y={ty + 26} textAnchor="middle" fill="#fafafa" className="text-xs font-semibold font-mono tracking-tight">{table.name}</text>
-                      
-                      {/* Column Rows */}
-                      {table.columns.map((col, idx) => {
-                        const ry = ty + 42 + idx * 26;
-                        const isFk = table.foreignKeys.some(fk => 
-                          fk.columns.map(c => c.toLowerCase()).includes(col.name.toLowerCase())
-                        );
+                    <>
+                      {/* LAYER 1: Lines split at diamond — Entity -> Diamond -> Entity */}
+                      {layout.edges.map((edge) => {
+                        const dm = diamondMap.get(edge.id)!;
+                        const { d1, d2 } = getSplitPaths(edge.points, 0.5, dm);
+                        const isEdgeFocused = selectedEntityName
+                          ? edge.sourceTable === selectedEntityName ||
+                            edge.targetTable === selectedEntityName
+                          : false;
 
                         return (
-                          <g key={col.name}>
-                            <rect x={tx} y={ry} width={tWidth} height={26} fill={idx % 2 === 0 ? 'rgba(39,39,42,0.15)' : 'transparent'} />
-                            <text x={tx + 12} y={ry + 17} fill={col.isPrimaryKey ? '#fafafa' : '#a1a1aa'} className={`text-xs ${col.isPrimaryKey ? 'italic font-medium font-mono' : 'font-mono font-normal'}`}>
-                              {col.name} <tspan fill="#52525b" className="text-[9px]">({col.type})</tspan>
-                            </text>
-                            
-                            {/* Badges indicators */}
-                            <g transform={`translate(${tx + tWidth - 55}, ${ry + 6.5})`}>
-                              {col.isPrimaryKey && (
-                                <g transform="translate(0,0)">
-                                  <rect width={16} height={12} rx={2} fill="#2563eb" />
-                                  <text x={8} y={9} textAnchor="middle" fill="#ffffff" className="text-[7px] font-medium">PK</text>
+                          <g key={`lines_${edge.id}`}>
+                            <path
+                              d={d1}
+                              fill="none"
+                              stroke={isEdgeFocused ? "#60a5fa" : "#2563eb"}
+                              strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                              className={
+                                isEdgeFocused
+                                  ? "diagram-rel-line diagram-rel-line--active"
+                                  : "diagram-rel-line"
+                              }
+                            />
+                            <path
+                              d={d2}
+                              fill="none"
+                              stroke={isEdgeFocused ? "#60a5fa" : "#2563eb"}
+                              strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                              className={
+                                isEdgeFocused
+                                  ? "diagram-rel-line diagram-rel-line--active"
+                                  : "diagram-rel-line"
+                              }
+                            />
+                          </g>
+                        );
+                      })}
+
+                      {/* LAYER 2: Entity boxes + orbiting attributes */}
+                      {layout.nodes.map((node) => {
+                        const table = node.table;
+                        const cx = node.x + node.width / 2;
+                        const cy = node.y + node.height / 2;
+                        const N = table.columns.length;
+                        const isEntitySelected =
+                          selectedEntityName === table.name;
+                        const foreignKeyColumns = new Set(
+                          table.foreignKeys.flatMap((fk) =>
+                            fk.columns.map((c) => c.toLowerCase()),
+                          ),
+                        );
+
+                        const attrs = table.columns.map((col, idx) => {
+                          const key = `${table.name}-${col.name}`;
+                          const defaultAngle = (2 * Math.PI * idx) / N;
+                          const defaultRadius = 85 + N * 5;
+                          const pos = attrPositions[key] || {
+                            angle: defaultAngle,
+                            radius: defaultRadius,
+                          };
+                          const w_attr = Math.max(60, col.name.length * 8 + 16);
+                          const h_attr = 30;
+                          return {
+                            col,
+                            key,
+                            width: w_attr,
+                            height: h_attr,
+                            angle: pos.angle,
+                            radius: pos.radius,
+                            x: cx + pos.radius * Math.cos(pos.angle),
+                            y: cy + pos.radius * Math.sin(pos.angle),
+                          };
+                        });
+
+                        resolveCollisions(attrs, cx, cy);
+
+                        const selectedAttrInTable =
+                          selectedAttr && selectedAttr.tableName === table.name
+                            ? attrs.find(
+                                (a) => a.col.name === selectedAttr.colName,
+                              )
+                            : null;
+
+                        return (
+                          <g
+                            key={node.id}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={() => {
+                              setSelectedEntityName((current) => {
+                                if (current === table.name) {
+                                  if (!entityInfoCollapsed) {
+                                    setEntityInfoCollapsed(true);
+                                    return current;
+                                  }
+                                  setSelectedAttr(null);
+                                  setShowAttrControls(false);
+                                  setEntityInfoCollapsed(false);
+                                  return null;
+                                }
+                                setSelectedAttr(null);
+                                setShowAttrControls(false);
+                                setEntityInfoCollapsed(false);
+                                return table.name;
+                              });
+                            }}
+                          >
+                            {selectedAttrInTable && (
+                              <circle
+                                cx={cx}
+                                cy={cy}
+                                r={selectedAttrInTable.radius}
+                                fill="none"
+                                stroke="#2563eb"
+                                strokeWidth={1}
+                                strokeDasharray="4,4"
+                                opacity={0.4}
+                              />
+                            )}
+
+                            {attrs.map((item) => (
+                              <line
+                                key={`line_${item.col.name}`}
+                                x1={cx}
+                                y1={cy}
+                                x2={item.x}
+                                y2={item.y}
+                                stroke={
+                                  selectedAttr &&
+                                  selectedAttr.tableName === table.name &&
+                                  selectedAttr.colName === item.col.name
+                                    ? "#2563eb"
+                                    : "#52525b"
+                                }
+                                strokeWidth={
+                                  selectedAttr &&
+                                  selectedAttr.tableName === table.name &&
+                                  selectedAttr.colName === item.col.name
+                                    ? 1.5
+                                    : 1
+                                }
+                                strokeDasharray={
+                                  selectedAttr &&
+                                  selectedAttr.tableName === table.name &&
+                                  selectedAttr.colName === item.col.name
+                                    ? "2,2"
+                                    : "none"
+                                }
+                              />
+                            ))}
+
+                            {attrs.map((item) => {
+                              const isSelected =
+                                selectedAttr &&
+                                selectedAttr.tableName === table.name &&
+                                selectedAttr.colName === item.col.name;
+                              const isForeignKey = foreignKeyColumns.has(
+                                item.col.name.toLowerCase(),
+                              );
+                              const highlightFk =
+                                isEntitySelected && isForeignKey;
+                              return (
+                                <g
+                                  key={`attr_g_${item.col.name}`}
+                                  className="cursor-move group select-none origin-center"
+                                  onPointerDown={(e) => {
+                                    e.stopPropagation();
+                                    setDraggingAttr({
+                                      tableName: table.name,
+                                      colName: item.col.name,
+                                    });
+                                    setSelectedAttr({
+                                      tableName: table.name,
+                                      colName: item.col.name,
+                                    });
+                                    setSelectedEntityName(null);
+                                    (
+                                      e.currentTarget as unknown as Element
+                                    ).setPointerCapture?.(e.pointerId);
+                                  }}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                  }}
+                                >
+                                  <ellipse
+                                    cx={item.x}
+                                    cy={item.y}
+                                    rx={item.width / 2}
+                                    ry={item.height / 2}
+                                    fill={
+                                      item.col.isPrimaryKey
+                                        ? "#18181b"
+                                        : "#09090b"
+                                    }
+                                    stroke={
+                                      isSelected
+                                        ? "#fbbf24"
+                                        : highlightFk
+                                          ? "#f59e0b"
+                                          : item.col.isPrimaryKey
+                                            ? "#2563eb"
+                                            : "#52525b"
+                                    }
+                                    strokeWidth={
+                                      isSelected || highlightFk ? 2.5 : 1.5
+                                    }
+                                    className="transition duration-150 group-hover:stroke-blue-400"
+                                  />
+                                  <text
+                                    x={item.x}
+                                    y={item.y + 3.5}
+                                    textAnchor="middle"
+                                    fill={
+                                      isSelected
+                                        ? "#fbbf24"
+                                        : highlightFk
+                                          ? "#f59e0b"
+                                          : item.col.isPrimaryKey
+                                            ? "#fa5454"
+                                            : "#a1a1aa"
+                                    }
+                                    textDecoration={
+                                      item.col.isPrimaryKey
+                                        ? "underline"
+                                        : "none"
+                                    }
+                                    className={`text-[10px] ${item.col.isPrimaryKey ? "italic font-medium" : "font-normal"}`}
+                                  >
+                                    {item.col.name}
+                                  </text>
                                 </g>
-                              )}
-                              {isFk && (
-                                <g transform={`translate(${col.isPrimaryKey ? 18 : 0},0)`}>
-                                  <rect width={16} height={12} rx={2} fill="#27272a" stroke="#3f3f46" strokeWidth={0.5} />
-                                  <text x={8} y={9} textAnchor="middle" fill="#a1a1aa" className="text-[7px] font-medium">FK</text>
+                              );
+                            })}
+
+                            <g
+                              transform={`translate(${cx - 60}, ${cy - 22.5})`}
+                              className="cursor-pointer"
+                            >
+                              <rect
+                                width={120}
+                                height={45}
+                                rx={6}
+                                fill="#18181b"
+                                stroke={
+                                  isEntitySelected
+                                    ? "#fbbf24"
+                                    : table.isJunctionTable
+                                      ? "#2563eb"
+                                      : "#52525b"
+                                }
+                                strokeWidth={
+                                  isEntitySelected
+                                    ? 2.5
+                                    : table.isJunctionTable
+                                      ? 2
+                                      : 1.5
+                                }
+                                className=""
+                              />
+                              <text
+                                x={60}
+                                y={27.5}
+                                textAnchor="middle"
+                                fill="#fafafa"
+                                className="text-xs font-medium tracking-wide"
+                              >
+                                {table.name}
+                              </text>
+                              {table.isJunctionTable && (
+                                <g transform="translate(35, -16)">
+                                  <rect
+                                    width={50}
+                                    height={12}
+                                    rx={3}
+                                    fill="#2563eb"
+                                  />
+                                  <text
+                                    x={25}
+                                    y={8.5}
+                                    textAnchor="middle"
+                                    fill="#ffffff"
+                                    className="text-[7px] font-medium uppercase tracking-wider"
+                                  >
+                                    Junction
+                                  </text>
                                 </g>
                               )}
                             </g>
                           </g>
                         );
                       })}
-                    </g>
-                  );
-                })}
-              </>
-            )}
 
-            {/* C. RENDER MODE: USE CASE DIAGRAM */}
-            {(mode === 'usecase' || mode === 'uml') && usecaseDiagram && (
-              <>
-                {/* 1. Draw System Boundaries */}
-                {usecaseDiagram.systems.length > 0 ? (
-                  usecaseDiagram.systems.map((sys, sIdx) => {
-                    const sy = systemYBoundary(sIdx, usecaseDiagram.usecases.length);
+                      {/* LAYER 3: Diamonds + crow's foot / labels — on top */}
+                      {diamonds.map((d) => {
+                        const { edge, rel, x: dmX, y: dmY } = d;
+                        const label = rel.verb
+                          ? rel.verb
+                          : getRelationshipLabel(
+                              rel.sourceTable,
+                              rel.targetTable,
+                            );
+                        const cleanLabel = label
+                          .replace(/<div>/g, "\n")
+                          .replace(/<\/div>/g, "");
+                        const lines = cleanLabel.split("\n");
+                        const diamondPts = `${dmX},${dmY - 22.5} ${dmX + 60},${dmY} ${dmX},${dmY + 22.5} ${dmX - 60},${dmY}`;
+
+                        const srcPt = edge.points[0];
+                        const srcPt2 = edge.points[1] ?? srcPt;
+                        const tgtPt = edge.points[edge.points.length - 1];
+                        const tgtPt2 =
+                          edge.points[edge.points.length - 2] ?? tgtPt;
+                        const sourceCardinality =
+                          rel.sourceCardinality ?? "one";
+                        const targetCardinality =
+                          rel.targetCardinality ??
+                          (rel.type === "1:1" ? "one" : "many");
+                        const srcLabel =
+                          sourceCardinality === "many" ? "N" : "1";
+                        const tgtLabel =
+                          targetCardinality === "many" ? "N" : "1";
+
+                        const sn = layout.nodes.find(
+                          (n) => n.id === rel.sourceTable,
+                        );
+                        const tn = layout.nodes.find(
+                          (n) => n.id === rel.targetTable,
+                        );
+                        const srcCenter = sn
+                          ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 }
+                          : srcPt;
+                        const tgtCenter = tn
+                          ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 }
+                          : tgtPt;
+                        const isDiamondFocused = selectedEntityName
+                          ? edge.sourceTable === selectedEntityName ||
+                            edge.targetTable === selectedEntityName
+                          : false;
+
+                        const srcBorder = getBorderPoint(
+                          srcCenter,
+                          srcPt2,
+                          120,
+                          45,
+                        );
+                        const tgtBorder = getBorderPoint(
+                          tgtCenter,
+                          tgtPt2,
+                          120,
+                          45,
+                        );
+
+                        const uSrc = uv(srcCenter, srcPt2);
+                        const uTgt = uv(tgtCenter, tgtPt2);
+
+                        return (
+                          <g key={`overlay_${edge.id}`}>
+                            {relNotation === "crowsfoot" ? (
+                              <>
+                                {/* Source-side cardinality marker */}
+                                {sourceCardinality === "one"
+                                  ? (() => {
+                                      const u = uSrc,
+                                        px = -u.y,
+                                        py = u.x;
+                                      const bx = srcBorder.x + u.x * 10,
+                                        by = srcBorder.y + u.y * 10;
+                                      return (
+                                        <line
+                                          x1={bx + px * 5}
+                                          y1={by + py * 5}
+                                          x2={bx - px * 5}
+                                          y2={by - py * 5}
+                                          stroke="#6366f1"
+                                          strokeWidth={2}
+                                          strokeLinecap="round"
+                                        />
+                                      );
+                                    })()
+                                  : (() => {
+                                      const u = uSrc,
+                                        px = -u.y,
+                                        py = u.x;
+                                      const far = {
+                                        x: srcBorder.x + u.x * 12,
+                                        y: srcBorder.y + u.y * 12,
+                                      };
+                                      return (
+                                        <g>
+                                          <line
+                                            x1={srcBorder.x + px * 5}
+                                            y1={srcBorder.y + py * 5}
+                                            x2={far.x}
+                                            y2={far.y}
+                                            stroke="#6366f1"
+                                            strokeWidth={1.5}
+                                            strokeLinecap="round"
+                                          />
+                                          <line
+                                            x1={srcBorder.x}
+                                            y1={srcBorder.y}
+                                            x2={far.x}
+                                            y2={far.y}
+                                            stroke="#6366f1"
+                                            strokeWidth={1.5}
+                                            strokeLinecap="round"
+                                          />
+                                          <line
+                                            x1={srcBorder.x - px * 5}
+                                            y1={srcBorder.y - py * 5}
+                                            x2={far.x}
+                                            y2={far.y}
+                                            stroke="#6366f1"
+                                            strokeWidth={1.5}
+                                            strokeLinecap="round"
+                                          />
+                                        </g>
+                                      );
+                                    })()}
+
+                                {/* Target side marker: single tick for 1:1, crow's foot for many */}
+                                {targetCardinality === "one"
+                                  ? (() => {
+                                      const u = uTgt,
+                                        px = -u.y,
+                                        py = u.x;
+                                      const bx = tgtBorder.x + u.x * 10,
+                                        by = tgtBorder.y + u.y * 10;
+                                      return (
+                                        <line
+                                          x1={bx + px * 5}
+                                          y1={by + py * 5}
+                                          x2={bx - px * 5}
+                                          y2={by - py * 5}
+                                          stroke="#6366f1"
+                                          strokeWidth={2}
+                                          strokeLinecap="round"
+                                        />
+                                      );
+                                    })()
+                                  : (() => {
+                                      const u = uTgt,
+                                        px = -u.y,
+                                        py = u.x;
+                                      const far = {
+                                        x: tgtBorder.x + u.x * 12,
+                                        y: tgtBorder.y + u.y * 12,
+                                      };
+                                      return (
+                                        <g>
+                                          <line
+                                            x1={tgtBorder.x + px * 5}
+                                            y1={tgtBorder.y + py * 5}
+                                            x2={far.x}
+                                            y2={far.y}
+                                            stroke="#6366f1"
+                                            strokeWidth={1.5}
+                                            strokeLinecap="round"
+                                          />
+                                          <line
+                                            x1={tgtBorder.x}
+                                            y1={tgtBorder.y}
+                                            x2={far.x}
+                                            y2={far.y}
+                                            stroke="#6366f1"
+                                            strokeWidth={1.5}
+                                            strokeLinecap="round"
+                                          />
+                                          <line
+                                            x1={tgtBorder.x - px * 5}
+                                            y1={tgtBorder.y - py * 5}
+                                            x2={far.x}
+                                            y2={far.y}
+                                            stroke="#6366f1"
+                                            strokeWidth={1.5}
+                                            strokeLinecap="round"
+                                          />
+                                        </g>
+                                      );
+                                    })()}
+                              </>
+                            ) : (
+                              <>
+                                {/* Text labels: positioned 36px back along the line */}
+                                {(() => {
+                                  const u = uSrc,
+                                    px = -u.y,
+                                    py = u.x;
+                                  const lx = srcBorder.x + u.x * 36 + px * 14,
+                                    ly = srcBorder.y + u.y * 36 + py * 14;
+                                  return (
+                                    <g>
+                                      <rect
+                                        x={lx - 7}
+                                        y={ly - 7}
+                                        width={14}
+                                        height={14}
+                                        rx={4}
+                                        fill="#09090b"
+                                        stroke="#6366f1"
+                                        strokeWidth={1}
+                                      />
+                                      <text
+                                        x={lx}
+                                        y={ly}
+                                        textAnchor="middle"
+                                        dominantBaseline="middle"
+                                        fill="#a5b4fc"
+                                        className="pointer-events-none"
+                                        style={{
+                                          fontFamily: "monospace",
+                                          fontSize: "10px",
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        {srcLabel}
+                                      </text>
+                                    </g>
+                                  );
+                                })()}
+                                {(() => {
+                                  const u = uTgt,
+                                    px = -u.y,
+                                    py = u.x;
+                                  const lx = tgtBorder.x + u.x * 36 + px * 14,
+                                    ly = tgtBorder.y + u.y * 36 + py * 14;
+                                  return (
+                                    <g>
+                                      <rect
+                                        x={lx - 7}
+                                        y={ly - 7}
+                                        width={14}
+                                        height={14}
+                                        rx={4}
+                                        fill="#09090b"
+                                        stroke="#6366f1"
+                                        strokeWidth={1}
+                                      />
+                                      <text
+                                        x={lx}
+                                        y={ly}
+                                        textAnchor="middle"
+                                        dominantBaseline="middle"
+                                        fill="#a5b4fc"
+                                        className="pointer-events-none"
+                                        style={{
+                                          fontFamily: "monospace",
+                                          fontSize: "10px",
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        {tgtLabel}
+                                      </text>
+                                    </g>
+                                  );
+                                })()}
+                              </>
+                            )}
+
+                            {/* Diamond — connected to lines */}
+                            <g className="cursor-pointer">
+                              <polygon
+                                points={diamondPts}
+                                fill="#18181b"
+                                stroke={
+                                  isDiamondFocused ? "#60a5fa" : "#2563eb"
+                                }
+                                strokeWidth={isDiamondFocused ? 2 : 1.5}
+                              />
+                              {lines.length > 1 ? (
+                                <text
+                                  x={dmX}
+                                  y={dmY - 3}
+                                  textAnchor="middle"
+                                  fill={
+                                    isDiamondFocused ? "#60a5fa" : "#2563eb"
+                                  }
+                                  className="text-[8px] font-medium pointer-events-none"
+                                >
+                                  <tspan x={dmX} dy="0">
+                                    {lines[0]}
+                                  </tspan>
+                                  <tspan x={dmX} dy="8">
+                                    {lines[1].replace(/^\/\s*/, "/ ")}
+                                  </tspan>
+                                </text>
+                              ) : (
+                                <text
+                                  x={dmX}
+                                  y={dmY + 3}
+                                  textAnchor="middle"
+                                  fill={
+                                    isDiamondFocused ? "#60a5fa" : "#2563eb"
+                                  }
+                                  className="text-[9px] font-medium pointer-events-none"
+                                >
+                                  {lines[0]}
+                                </text>
+                              )}
+                            </g>
+                          </g>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+              {/* B1. RENDER MODE: LRS SCHEMA */}
+              {mode === "lrs" && layout && (
+                <>
+                  {/* 1. Draw Connectors (Orthogonal lines) */}
+                  {layout.edges.map((edge) => {
+                    const rel = edge.relationship;
+                    const isEdgeFocused = selectedEntityName
+                      ? edge.sourceTable === selectedEntityName ||
+                        edge.targetTable === selectedEntityName
+                      : false;
+                    let pathD = "";
+                    edge.points.forEach((pt, i) => {
+                      pathD += `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y} `;
+                    });
+
                     return (
-                      <g key={sIdx}>
-                        <rect x={260} y={sy} width={340} height={Math.max(320, usecaseDiagram.usecases.length * 90 + 80)} rx={8} fill="none" stroke="#52525b" strokeWidth={2} strokeDasharray="5,5" />
-                        <text x={260 + 170} y={sy + 25} textAnchor="middle" fill="#a1a1aa" className="text-xs font-medium">{sys.name}</text>
+                      <g key={edge.id}>
+                        <path
+                          d={pathD}
+                          fill="none"
+                          stroke={isEdgeFocused ? "#60a5fa" : "#2563eb"}
+                          strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                          markerStart="url(#one-marker)"
+                          markerEnd={
+                            rel.type === "1:1"
+                              ? "url(#one-one-marker)"
+                              : "url(#many-marker)"
+                          }
+                          className="diagram-rel-line"
+                        />
                       </g>
                     );
-                  })
-                ) : (
-                  <g>
-                    <rect x={260} y={60} width={340} height={Math.max(320, usecaseDiagram.usecases.length * 90 + 80)} rx={8} fill="none" stroke="#52525b" strokeWidth={2} strokeDasharray="5,5" />
-                    <text x={260 + 170} y={60 + 25} textAnchor="middle" fill="#a1a1aa" className="text-xs font-medium">System boundary</text>
-                  </g>
-                )}
+                  })}
 
-                {/* 2. Draw Connections */}
-                {usecaseDiagram.connections.map((conn) => {
-                  let sx = 0, sy = 0, tx = 0, ty = 0;
-                  
-                  const actIdx = usecaseDiagram.actors.findIndex(a => a.id === conn.from);
-                  if (actIdx !== -1) {
-                    sx = 80 + 15;
-                    sy = 60 + 40 + actIdx * Math.max(120, Math.max(320, usecaseDiagram.usecases.length * 90 + 80) / (usecaseDiagram.actors.length || 1)) + 30;
-                  } else {
-                    const ucIdx = usecaseDiagram.usecases.findIndex(u => u.id === conn.from);
-                    if (ucIdx !== -1) {
-                      sx = 260 + (340 - 160) / 2 + 80;
-                      sy = 60 + 50 + ucIdx * 85 + 30;
-                    }
-                  }
+                  {/* 2. Draw Table Rows Blocks */}
+                  {layout.nodes.map((node) => {
+                    const table = node.table;
+                    const cx = node.x + node.width / 2;
+                    const cy = node.y + node.height / 2;
+                    const tWidth = 240;
+                    const tHeight = 42 + table.columns.length * 26 + 8;
+                    const tx = cx - 120;
+                    const ty = cy - tHeight / 2;
 
-                  const ucIdx = usecaseDiagram.usecases.findIndex(u => u.id === conn.to);
-                  if (ucIdx !== -1) {
-                    tx = 260 + (340 - 160) / 2 + 80;
-                    ty = 60 + 50 + ucIdx * 85 + 30;
-                  } else {
-                    const actIdx = usecaseDiagram.actors.findIndex(a => a.id === conn.to);
-                    if (actIdx !== -1) {
-                      tx = 80 + 15;
-                      ty = 60 + 40 + actIdx * Math.max(120, Math.max(320, usecaseDiagram.usecases.length * 90 + 80) / (usecaseDiagram.actors.length || 1)) + 30;
-                    }
-                  }
-
-
-                  const midX = (sx + tx) / 2;
-                  const midY = (sy + ty) / 2;
-                  return (
-                    <g key={conn.id}>
-                      <line x1={sx} y1={sy} x2={tx} y2={ty}
-                        stroke={conn.label ? "#2563eb" : "#52525b"}
-                        strokeWidth={1.5}
-                        strokeDasharray={conn.label ? "5,3" : "none"}
-                        markerEnd={conn.label ? "url(#sequence-arrow)" : undefined} />
-                      {conn.label && (
-                        <text x={midX} y={midY - 4} textAnchor="middle" fill="#2563eb"
-                          className="text-[8px] font-mono font-bold"
-                          style={{ paintOrder: "stroke", stroke: "#09090b", strokeWidth: "3px" }}>
-                          {conn.label}
+                    return (
+                      <g key={node.id}>
+                        {/* Outer Card */}
+                        <rect
+                          x={tx}
+                          y={ty}
+                          width={tWidth}
+                          height={tHeight}
+                          rx={8}
+                          fill="#18181b"
+                          stroke="#52525b"
+                          strokeWidth={1.5}
+                        />
+                        {/* Header */}
+                        <path
+                          d={`M ${tx} ${ty + 8} A 8 8 0 0 1 ${tx + 8} ${ty} L ${tx + tWidth - 8} ${ty} A 8 8 0 0 1 ${tx + tWidth} ${ty + 8} L ${tx + tWidth} ${ty + 42} L ${tx} ${ty + 42} Z`}
+                          fill="#09090b"
+                        />
+                        <text
+                          x={cx}
+                          y={ty + 26}
+                          textAnchor="middle"
+                          fill="#fafafa"
+                          className="text-xs font-semibold font-mono tracking-tight"
+                        >
+                          {table.name}
                         </text>
-                      )}
-                    </g>
-                  );
-                })}
 
+                        {/* Column Rows */}
+                        {table.columns.map((col, idx) => {
+                          const ry = ty + 42 + idx * 26;
+                          const isFk = table.foreignKeys.some((fk) =>
+                            fk.columns
+                              .map((c) => c.toLowerCase())
+                              .includes(col.name.toLowerCase()),
+                          );
 
-                {/* 3. Draw Actors */}
-                {usecaseDiagram.actors.map((act, idx) => {
-                  const spacing = Math.max(120, Math.max(320, usecaseDiagram.usecases.length * 90 + 80) / (usecaseDiagram.actors.length || 1));
-                  const ay = 60 + 40 + idx * spacing;
-                  const isRight = act.side === 'right';
-                  const ax = isRight ? 660 : 80;
-                  return (
-                    <g key={act.id}>
-                      <circle cx={ax + 15} cy={ay + 10} r={10} fill='#18181b' stroke='#2563eb' strokeWidth={2} />
-                      <line x1={ax + 15} y1={ay + 20} x2={ax + 15} y2={ay + 45} stroke='#2563eb' strokeWidth={2} />
-                      <line x1={ax} y1={ay + 28} x2={ax + 30} y2={ay + 28} stroke='#2563eb' strokeWidth={2} />
-                      <line x1={ax + 15} y1={ay + 45} x2={ax + 5} y2={ay + 60} stroke='#2563eb' strokeWidth={2} />
-                      <line x1={ax + 15} y1={ay + 45} x2={ax + 25} y2={ay + 60} stroke='#2563eb' strokeWidth={2} />
-                      <text x={ax + 15} y={ay + 75} textAnchor='middle' fill='#fafafa' className='text-[10px] font-medium select-none'>{act.name}</text>
-                    </g>
-                  );
-                })}
+                          return (
+                            <g key={col.name}>
+                              <rect
+                                x={tx}
+                                y={ry}
+                                width={tWidth}
+                                height={26}
+                                fill={
+                                  idx % 2 === 0
+                                    ? "rgba(39,39,42,0.15)"
+                                    : "transparent"
+                                }
+                              />
+                              <text
+                                x={tx + 12}
+                                y={ry + 17}
+                                fill="#ffffff"
+                                className={`text-xs ${col.isPrimaryKey ? "italic font-medium font-mono" : "font-mono font-normal"}`}
+                              >
+                                {formatLrsColumn(col.name, col.isPrimaryKey, isFk, lrsKeyNotation)}{" "}
+                                <tspan fill="#ffffff" className="text-[9px]">
+                                  ({col.type})
+                                </tspan>
+                              </text>
+                            </g>
+                          );
+                        })}
+                      </g>
+                    );
+                  })}
+                </>
+              )}
 
-                {/* 4. Draw Use Cases */}
-                {usecaseDiagram.usecases.map((uc, idx) => {
-                  let sysIdx = 0;
-                  let sy = 60;
-                  const systemHeight = Math.max(320, usecaseDiagram.usecases.length * 90 + 80);
-                  for (let sIdx = 0; sIdx < usecaseDiagram.systems.length; sIdx++) {
-                    if (usecaseDiagram.systems[sIdx].usecaseIds.includes(uc.id)) {
-                      sysIdx = sIdx;
-                      sy = 60 + sysIdx * (systemHeight + 50);
-                      break;
+              {/* B1.5. RENDER MODE: CLASS DIAGRAM */}
+              {mode === "class" && layout && (
+                <>
+                  {/* 1. Draw Connectors (Orthogonal lines) */}
+                  {layout.edges.map((edge) => {
+                    const rel = edge.relationship;
+                    const isEdgeFocused = selectedEntityName
+                      ? edge.sourceTable === selectedEntityName ||
+                        edge.targetTable === selectedEntityName
+                      : false;
+                    let pathD = "";
+                    edge.points.forEach((pt, i) => {
+                      pathD += `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y} `;
+                    });
+
+                    return (
+                      <g key={edge.id}>
+                        <path
+                          d={pathD}
+                          fill="none"
+                          stroke={isEdgeFocused ? "#60a5fa" : "#3b82f6"}
+                          strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                          markerStart={relNotation === "crowsfoot" ? "url(#one-marker)" : undefined}
+                          markerEnd={
+                            relNotation === "crowsfoot"
+                              ? rel.type === "1:1"
+                                ? "url(#one-one-marker)"
+                                : "url(#many-marker)"
+                              : undefined
+                          }
+                          className="diagram-rel-line"
+                        />
+                        {relNotation === "label" && (
+                          <>
+                            {/* Start point label (Source) */}
+                            <text
+                              x={edge.points[0].x + 10}
+                              y={edge.points[0].y - 5}
+                              fill="#a1a1aa"
+                              className="text-[9px] font-semibold font-mono"
+                            >
+                              1
+                            </text>
+                            {/* End point label (Target) */}
+                            <text
+                              x={edge.points[edge.points.length - 1].x - 15}
+                              y={edge.points[edge.points.length - 1].y - 5}
+                              fill="#a1a1aa"
+                              className="text-[9px] font-semibold font-mono"
+                            >
+                              {rel.type === "1:1" ? "1" : "*"}
+                            </text>
+                          </>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* 2. Draw Class Boxes */}
+                  {layout.nodes.map((node) => {
+                    const table = node.table;
+                    const cx = node.x + node.width / 2;
+                    const cy = node.y + node.height / 2;
+                    const tWidth = 240;
+                    
+                    const methods = classMethods[table.name] || [
+                      `+ insert(input: Data): void`,
+                      `+ delete(id: int): boolean`,
+                      `+ findById(id: int): Object`
+                    ];
+                    
+                    const headerHeight = 40;
+                    const attrsHeight = table.columns.length * 20 + 12;
+                    const methodsHeight = Math.max(1, methods.length) * 20 + 12;
+                    const tHeight = headerHeight + attrsHeight + methodsHeight;
+                    
+                    const tx = cx - 120;
+                    const ty = cy - tHeight / 2;
+
+                    return (
+                      <g key={node.id} onClick={() => setSelectedEntityName(table.name)} className="cursor-pointer">
+                        {/* Outer Class Container */}
+                        <rect
+                          x={tx}
+                          y={ty}
+                          width={tWidth}
+                          height={tHeight}
+                          rx={6}
+                          fill="#18181b"
+                          stroke={selectedEntityName === table.name ? "#3b82f6" : "#3f3f46"}
+                          strokeWidth={selectedEntityName === table.name ? 2.5 : 1.5}
+                        />
+                        
+                        {/* Class Name Header */}
+                        <text
+                          x={cx}
+                          y={ty + 24}
+                          textAnchor="middle"
+                          fill="#ffffff"
+                          className="text-xs font-bold font-mono tracking-wide"
+                        >
+                          {table.name}
+                        </text>
+                        
+                        {/* First Separator Line (under header) */}
+                        <line
+                          x1={tx}
+                          y1={ty + headerHeight}
+                          x2={tx + tWidth}
+                          y2={ty + headerHeight}
+                          stroke="#3f3f46"
+                          strokeWidth={1.5}
+                        />
+
+                        {/* Attributes Compartment */}
+                        {table.columns.map((col, idx) => {
+                          const isFk = table.foreignKeys.some((fk) =>
+                            fk.columns
+                              .map((c) => c.toLowerCase())
+                              .includes(col.name.toLowerCase()),
+                          );
+                          const vis = col.isPrimaryKey ? "+" : "-";
+                          const ry = ty + headerHeight + 8 + idx * 20;
+                          return (
+                            <text
+                              key={col.name}
+                              x={tx + 12}
+                              y={ry + 12}
+                              fill="#ffffff"
+                              className="text-[11px] font-mono"
+                            >
+                              {vis} {col.name}: {col.type.toLowerCase()}
+                            </text>
+                          );
+                        })}
+
+                        {/* Second Separator Line (under attributes) */}
+                        <line
+                          x1={tx}
+                          y1={ty + headerHeight + attrsHeight}
+                          x2={tx + tWidth}
+                          y2={ty + headerHeight + attrsHeight}
+                          stroke="#3f3f46"
+                          strokeWidth={1.5}
+                        />
+
+                        {/* Methods Compartment */}
+                        {methods.map((method, idx) => {
+                          const ry = ty + headerHeight + attrsHeight + 8 + idx * 20;
+                          return (
+                            <text
+                              key={idx}
+                              x={tx + 12}
+                              y={ry + 12}
+                              fill="#ffffff"
+                              className="text-[11px] font-mono font-medium"
+                            >
+                              {method}
+                            </text>
+                          );
+                        })}
+                      </g>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* B2. RENDER MODE: ERD ➔ LRS HYBRID TRANSFORMATION */}
+              {mode === "transformation" && layout && (() => {
+                  const polyLen = (pts: { x: number; y: number }[]) => {
+                    let t = 0;
+                    for (let i = 1; i < pts.length; i++) {
+                      const dx = pts[i].x - pts[i - 1].x,
+                        dy = pts[i].y - pts[i - 1].y;
+                      t += Math.sqrt(dx * dx + dy * dy);
                     }
-                  }
-                  const localIdx = usecaseDiagram.systems.length > 0 
-                    ? usecaseDiagram.systems[sysIdx].usecaseIds.indexOf(uc.id)
-                    : idx;
+                    return t;
+                  };
+                  const ptAtT = (
+                    pts: { x: number; y: number }[],
+                    t: number,
+                  ) => {
+                    const total = polyLen(pts);
+                    let rem = Math.max(0, Math.min(1, t)) * total;
+                    for (let i = 1; i < pts.length; i++) {
+                      const dx = pts[i].x - pts[i - 1].x,
+                        dy = pts[i].y - pts[i - 1].y;
+                      const seg = Math.sqrt(dx * dx + dy * dy);
+                      if (rem <= seg || i === pts.length - 1) {
+                        const f = seg > 0 ? rem / seg : 0;
+                        return {
+                          x: pts[i - 1].x + dx * f,
+                          y: pts[i - 1].y + dy * f,
+                        };
+                      }
+                      rem -= seg;
+                    }
+                    return pts[pts.length - 1];
+                  };
 
-                  const ux = 260 + (340 - 160) / 2;
-                  const uy = sy + 50 + (localIdx >= 0 ? localIdx : 0) * 85;
-
-                  return (
-                    <g key={uc.id}>
-                      <ellipse cx={ux + 80} cy={uy + 30} rx={80} ry={30} fill="#18181b" stroke="#52525b" strokeWidth={1.5} />
-                      <text x={ux + 80} y={uy + 33.5} textAnchor="middle" fill="#fafafa" className="text-[11px] font-medium select-none">{uc.name}</text>
-                    </g>
-                  );
-                })}
-              </>
-            )}
-
-            {/* D. RENDER MODE: ACTIVITY DIAGRAM */}
-            {mode === 'activity' && activityDiagram && (
-              <>
-                {/* 1. Draw flow lines */}
-                {activityDiagram.edges.map((edge) => {
-                  let pathD = '';
-                  edge.points.forEach((pt, idx) => {
-                    pathD += `${idx === 0 ? 'M' : 'L'} ${pt.x} ${pt.y} `;
+                  const diamonds = layout.edges.map((edge) => ({
+                    edge,
+                    rel: edge.relationship,
+                    t: 0.5,
+                    x: 0,
+                    y: 0,
+                    w: 120,
+                    h: 45,
+                  }));
+                  diamonds.forEach((d) => {
+                    const p = ptAtT(d.edge.points, d.t);
+                    d.x = p.x;
+                    d.y = p.y;
                   });
 
-                  let labelX = 0, labelY = 0;
-                  if (edge.points.length >= 2) {
-                    const midIdx = Math.floor(edge.points.length / 2);
-                    labelX = edge.points[midIdx].x;
-                    labelY = edge.points[midIdx].y - 8;
+                  for (let iter = 0; iter < 30; iter++) {
+                    let moved = false;
+                    for (let i = 0; i < diamonds.length; i++) {
+                      for (let j = i + 1; j < diamonds.length; j++) {
+                        const a = diamonds[i],
+                          b = diamonds[j];
+                        if (
+                          Math.abs(a.x - b.x) < (a.w + b.w) / 2 + 4 &&
+                          Math.abs(a.y - b.y) < (a.h + b.h) / 2 + 4
+                        ) {
+                          moved = true;
+                          a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
+                          b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
+                          const pa = ptAtT(a.edge.points, a.t),
+                            pb = ptAtT(b.edge.points, b.t);
+                          a.x = pa.x;
+                          a.y = pa.y;
+                          b.x = pb.x;
+                          b.y = pb.y;
+                        }
+                      }
+                    }
+                    if (!moved) break;
                   }
+
+                  const getBorderPoint = (
+                    center: { x: number; y: number },
+                    toward: { x: number; y: number },
+                    w = 160,
+                    h = 100,
+                  ) => {
+                    const dx = toward.x - center.x;
+                    const dy = toward.y - center.y;
+                    if (dx === 0 && dy === 0) return center;
+                    const absDx = Math.abs(dx);
+                    const absDy = Math.abs(dy);
+                    const hw = w / 2;
+                    const hh = h / 2;
+                    const scaleX = dx !== 0 ? hw / absDx : Infinity;
+                    const scaleY = dy !== 0 ? hh / absDy : Infinity;
+                    const scale = Math.min(scaleX, scaleY);
+                    return {
+                      x: center.x + dx * scale,
+                      y: center.y + dy * scale,
+                    };
+                  };
+
+                  const uv = (
+                    a: { x: number; y: number },
+                    b: { x: number; y: number },
+                  ) => {
+                    const dx = b.x - a.x,
+                      dy = b.y - a.y,
+                      l = Math.sqrt(dx * dx + dy * dy) || 1;
+                    return { x: dx / l, y: dy / l };
+                  };
+
+                  const diamondMap = new Map<string, { x: number; y: number }>();
+                  diamonds.forEach((d) => diamondMap.set(d.edge.id, { x: d.x, y: d.y }));
+
+                  const getSplitPaths = (
+                    pts: { x: number; y: number }[],
+                    t: number,
+                    dm: { x: number; y: number },
+                  ) => {
+                    const total = polyLen(pts);
+                    const target = t * total;
+
+                    let current = 0;
+                    const path1: { x: number; y: number }[] = [];
+                    const path2: { x: number; y: number }[] = [];
+
+                    path1.push(pts[0]);
+                    let dmPlaced = false;
+
+                    for (let i = 1; i < pts.length; i++) {
+                      const p1 = pts[i - 1];
+                      const p2 = pts[i];
+                      const dx = p2.x - p1.x;
+                      const dy = p2.y - p1.y;
+                      const seg = Math.sqrt(dx * dx + dy * dy);
+
+                      if (!dmPlaced) {
+                        if (current + seg < target) {
+                          path1.push(p2);
+                        } else {
+                          path1.push(dm);
+                          path2.push(dm);
+                          path2.push(p2);
+                          dmPlaced = true;
+                        }
+                      } else {
+                        path2.push(p2);
+                      }
+                      current += seg;
+                    }
+
+                    if (!dmPlaced) {
+                      path1.push(dm);
+                      path2.push(dm);
+                      path2.push(pts[pts.length - 1]);
+                    }
+
+                    const d1 = path1
+                      .map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+                      .join(" ");
+                    const d2 = path2
+                      .map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x} ${p.y}`)
+                      .join(" ");
+
+                    return { d1, d2 };
+                  };
 
                   return (
-                    <g key={edge.id}>
-                      <path d={pathD} fill="none" stroke="#2563eb" strokeWidth={1.5} markerEnd="url(#activity-arrow)" />
-                      {edge.label && (
-                        <text x={labelX} y={labelY} textAnchor="middle" fill="#2563eb" className="text-[9px] font-medium">{edge.label}</text>
-                      )}
-                    </g>
-                  );
-                })}
+                    <>
+                      {/* 1. Connectors (Lines) */}
+                      {layout.edges.map((edge) => {
+                        const isEdgeFocused = selectedEntityName
+                          ? edge.sourceTable === selectedEntityName ||
+                            edge.targetTable === selectedEntityName
+                          : false;
+                        const dm = diamondMap.get(edge.id)!;
+                        const { d1, d2 } = getSplitPaths(edge.points, 0.5, dm);
 
-                {/* 2. Draw nodes */}
-                {activityDiagram.nodes.map((node) => {
-                  if (node.type === 'start') {
-                    return (
-                      <circle key={node.id} cx={node.x + 15} cy={node.y + 15} r={15} fill="#16a34a" stroke="#15803d" strokeWidth={2} />
+                        let childTable = edge.relationship.targetTable;
+                        if (edge.relationship.sourceCardinality === "many" && edge.relationship.targetCardinality !== "many") {
+                          childTable = edge.relationship.sourceTable;
+                        }
+                        const colors = getTableColors(childTable);
+
+                        return (
+                          <g key={`trans_edge_${edge.id}`}>
+                            <path
+                              d={d1}
+                              fill="none"
+                              stroke={isEdgeFocused ? "#60a5fa" : colors.stroke}
+                              strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                              className="diagram-rel-line"
+                            />
+                            <path
+                              d={d2}
+                              fill="none"
+                              stroke={isEdgeFocused ? "#60a5fa" : colors.stroke}
+                              strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                              className="diagram-rel-line"
+                            />
+                          </g>
+                        );
+                      })}
+
+                      {/* 1.5. Dashed boxes (sent to back/drawn first) */}
+                      {(() => {
+                        const childTables = new Set<string>();
+                        const relToChildTable = new Map<string, string>();
+                        diamonds.forEach((d) => {
+                          const rel = d.rel;
+                          let childTable = rel.targetTable;
+                          if (rel.sourceCardinality === "many" && rel.targetCardinality !== "many") {
+                            childTable = rel.sourceTable;
+                          }
+                          childTables.add(childTable);
+                          relToChildTable.set(rel.id, childTable);
+                        });
+
+                        return (
+                          <>
+                            {/* 1.5a. Weak Entity identifying relationship dashed boxes */}
+                            {diamonds.map((d) => {
+                              const rel = d.rel;
+                              const diamondWidth = 120;
+                              const diamondHeight = 60;
+                              const dx = d.x - diamondWidth / 2;
+                              const dy = d.y - diamondHeight / 2;
+
+                              const childTable = relToChildTable.get(rel.id)!;
+                              const sn = layout.nodes.find((n) => n.id === childTable);
+                              if (!sn) return null;
+
+                              const numCols = sn.table.columns.length;
+                              const boxWidth = 160;
+                              const boxHeight = 40 + 15 + numCols * 20 + 15;
+                              const cx = sn.x + sn.width / 2;
+                              const cy = sn.y + sn.height / 2;
+                              const bx = cx - boxWidth / 2;
+                              const by = cy - boxHeight / 2;
+
+                              const minX = Math.min(bx, dx) - 15;
+                              const minY = Math.min(by, dy) - 15;
+                              const maxX = Math.max(bx + boxWidth, dx + diamondWidth) + 15;
+                              const maxY = Math.max(by + boxHeight, dy + diamondHeight) + 15;
+                              const w = maxX - minX;
+                              const h = maxY - minY;
+
+                              const colors = getTableColors(childTable);
+
+                              return (
+                                <rect
+                                  key={`trans_dash_rel_${rel.id}`}
+                                  x={minX}
+                                  y={minY}
+                                  width={w}
+                                  height={h}
+                                  fill="none"
+                                  stroke={colors.stroke}
+                                  strokeWidth={1.5}
+                                  strokeDasharray="6,6"
+                                  rx={8}
+                                />
+                              );
+                            })}
+
+                            {/* 1.5b. Regular Entity dashed boxes (only wraps attributes and entity header) */}
+                            {layout.nodes.map((node) => {
+                              const table = node.table;
+                              if (childTables.has(table.name)) return null;
+
+                              const numCols = table.columns.length;
+                              const boxWidth = 160;
+                              const boxHeight = 40 + 15 + numCols * 20 + 15;
+                              const cx = node.x + node.width / 2;
+                              const cy = node.y + node.height / 2;
+                              const bx = cx - boxWidth / 2;
+                              const by = cy - boxHeight / 2;
+
+                              const minX = bx - 10;
+                              const minY = by - 10;
+                              const w = boxWidth + 20;
+                              const h = boxHeight + 20;
+
+                              const colors = getTableColors(table.name);
+
+                              return (
+                                <rect
+                                  key={`trans_dash_table_${table.name}`}
+                                  x={minX}
+                                  y={minY}
+                                  width={w}
+                                  height={h}
+                                  fill="none"
+                                  stroke={colors.stroke}
+                                  strokeWidth={1.5}
+                                  strokeDasharray="6,6"
+                                  rx={8}
+                                />
+                              );
+                            })}
+                          </>
+                        );
+                      })()}
+
+                      {/* 2. Solid Cards for Entities */}
+                      {layout.nodes.map((node) => {
+                        const table = node.table;
+                        const numCols = table.columns.length;
+                        const boxWidth = 160;
+                        const boxHeight = 40 + 15 + numCols * 20 + 15;
+                        const cx = node.x + node.width / 2;
+                        const cy = node.y + node.height / 2;
+                        const bx = cx - boxWidth / 2;
+                        const by = cy - boxHeight / 2;
+
+                        const isEntitySelected = selectedEntityName === table.name;
+                        const colors = getTableColors(table.name);
+
+                        return (
+                          <g
+                            key={`trans_node_${node.id}`}
+                            className="cursor-pointer"
+                            onClick={() => setSelectedEntityName(table.name)}
+                          >
+                            {/* Outer Solid Container */}
+                            <rect
+                              x={bx}
+                              y={by}
+                              width={boxWidth}
+                              height={boxHeight}
+                              fill={colors.fill}
+                              stroke={isEntitySelected ? "#60a5fa" : colors.stroke}
+                              strokeWidth={isEntitySelected ? 2 : 1}
+                              rx={4}
+                            />
+                            {/* Entity Header Rounded Rectangle */}
+                            <rect
+                              x={bx + 10}
+                              y={by + 10}
+                              width={boxWidth - 20}
+                              height={40}
+                              fill={colors.stroke}
+                              stroke={colors.border || colors.stroke}
+                              strokeWidth={1.5}
+                              rx={6}
+                            />
+                            <text
+                              x={bx + boxWidth / 2}
+                              y={by + 34}
+                              textAnchor="middle"
+                              fill="#ffffff"
+                              className="text-xs font-semibold tracking-wide font-mono"
+                            >
+                              {table.name}
+                            </text>
+
+                            {/* Attributes Text Block stacked vertically */}
+                            {table.columns.map((col, idx) => {
+                              const isFk = table.foreignKeys.some((fk) =>
+                                fk.columns
+                                  .map((c) => c.toLowerCase())
+                                  .includes(col.name.toLowerCase()),
+                              );
+                              const formattedLabel = formatLrsColumn(col.name, col.isPrimaryKey, isFk, lrsKeyNotation);
+                              const suffix = col.isUnique && !col.isPrimaryKey ? " (UQ)" : "";
+
+                              return (
+                                <text
+                                  key={col.name}
+                                  x={bx + 16}
+                                  y={by + 68 + idx * 20}
+                                  fill={col.isPrimaryKey ? "#09090b" : colors.text}
+                                  className={`text-[11px] font-mono ${col.isPrimaryKey ? "font-semibold" : "font-normal"}`}
+                                >
+                                  - {formattedLabel}{suffix}
+                                </text>
+                              );
+                            })}
+                          </g>
+                        );
+                      })}
+
+                      {/* 3. Diamonds + Crow's Foot markers */}
+                      {diamonds.map((d) => {
+                        const { edge, rel, x: dmX, y: dmY } = d;
+                        const label = rel.verb
+                          ? rel.verb
+                          : getRelationshipLabel(
+                              rel.sourceTable,
+                              rel.targetTable,
+                            );
+                        const cleanLabel = label
+                          .replace(/<div>/g, "\n")
+                          .replace(/<\/div>/g, "");
+                        const lines = cleanLabel.split("\n");
+                        const diamondPts = `${dmX},${dmY - 22.5} ${dmX + 60},${dmY} ${dmX},${dmY + 22.5} ${dmX - 60},${dmY}`;
+
+                        const srcPt = edge.points[0];
+                        const srcPt2 = edge.points[1] ?? srcPt;
+                        const tgtPt = edge.points[edge.points.length - 1];
+                        const tgtPt2 =
+                          edge.points[edge.points.length - 2] ?? tgtPt;
+                        const sourceCardinality =
+                          rel.sourceCardinality ?? "one";
+                        const targetCardinality =
+                          rel.targetCardinality ??
+                          (rel.type === "1:1" ? "one" : "many");
+
+                        const sn = layout.nodes.find(
+                          (n) => n.id === rel.sourceTable,
+                        );
+                        const tn = layout.nodes.find(
+                          (n) => n.id === rel.targetTable,
+                        );
+
+                        // Layout dimensions for custom box
+                        const numColsSrc = sn?.table.columns.length ?? 0;
+                        const hSrc = 40 + 15 + numColsSrc * 20 + 15;
+                        const numColsTgt = tn?.table.columns.length ?? 0;
+                        const hTgt = 40 + 15 + numColsTgt * 20 + 15;
+
+                        const srcCenter = sn
+                          ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 }
+                          : srcPt;
+                        const tgtCenter = tn
+                          ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 }
+                          : tgtPt;
+                        const isDiamondFocused = selectedEntityName
+                          ? edge.sourceTable === selectedEntityName ||
+                            edge.targetTable === selectedEntityName
+                          : false;
+
+                        const srcBorder = getBorderPoint(
+                          srcCenter,
+                          srcPt2,
+                          160,
+                          hSrc,
+                        );
+                        const tgtBorder = getBorderPoint(
+                          tgtCenter,
+                          tgtPt2,
+                          160,
+                          hTgt,
+                        );
+
+                        const uSrc = uv(srcCenter, srcPt2);
+                        const uTgt = uv(tgtCenter, tgtPt2);
+
+                        // Colors mapped to the child/weak table group
+                        let childTable = rel.targetTable;
+                        if (rel.sourceCardinality === "many" && rel.targetCardinality !== "many") {
+                          childTable = rel.sourceTable;
+                        }
+                        const colors = getTableColors(childTable);
+
+                        return (
+                          <g key={`trans_overlay_${edge.id}`}>
+                            {/* Source side crow's foot tick marks */}
+                            {sourceCardinality === "one"
+                              ? (() => {
+                                  const u = uSrc,
+                                    px = -u.y,
+                                    py = u.x;
+                                  const bx = srcBorder.x + u.x * 10,
+                                    by = srcBorder.y + u.y * 10;
+                                  return (
+                                    <line
+                                      x1={bx + px * 5}
+                                      y1={by + py * 5}
+                                      x2={bx - px * 5}
+                                      y2={by - py * 5}
+                                      stroke={colors.stroke}
+                                      strokeWidth={2}
+                                      strokeLinecap="round"
+                                    />
+                                  );
+                                })()
+                              : (() => {
+                                  const u = uSrc,
+                                    px = -u.y,
+                                    py = u.x;
+                                  const far = {
+                                    x: srcBorder.x + u.x * 12,
+                                    y: srcBorder.y + u.y * 12,
+                                  };
+                                  return (
+                                    <g>
+                                      <line
+                                        x1={srcBorder.x + px * 5}
+                                        y1={srcBorder.y + py * 5}
+                                        x2={far.x}
+                                        y2={far.y}
+                                        stroke={colors.stroke}
+                                        strokeWidth={1.5}
+                                        strokeLinecap="round"
+                                      />
+                                      <line
+                                        x1={srcBorder.x}
+                                        y1={srcBorder.y}
+                                        x2={far.x}
+                                        y2={far.y}
+                                        stroke={colors.stroke}
+                                        strokeWidth={1.5}
+                                        strokeLinecap="round"
+                                      />
+                                      <line
+                                        x1={srcBorder.x - px * 5}
+                                        y1={srcBorder.y - py * 5}
+                                        x2={far.x}
+                                        y2={far.y}
+                                        stroke={colors.stroke}
+                                        strokeWidth={1.5}
+                                        strokeLinecap="round"
+                                      />
+                                    </g>
+                                  );
+                                })()}
+
+                            {/* Target side crow's foot tick marks */}
+                            {targetCardinality === "one"
+                              ? (() => {
+                                  const u = uTgt,
+                                    px = -u.y,
+                                    py = u.x;
+                                  const bx = tgtBorder.x + u.x * 10,
+                                    by = tgtBorder.y + u.y * 10;
+                                  return (
+                                    <line
+                                      x1={bx + px * 5}
+                                      y1={by + py * 5}
+                                      x2={bx - px * 5}
+                                      y2={by - py * 5}
+                                      stroke={colors.stroke}
+                                      strokeWidth={2}
+                                      strokeLinecap="round"
+                                    />
+                                  );
+                                })()
+                              : (() => {
+                                  const u = uTgt,
+                                    px = -u.y,
+                                    py = u.x;
+                                  const far = {
+                                    x: tgtBorder.x + u.x * 12,
+                                    y: tgtBorder.y + u.y * 12,
+                                  };
+                                  return (
+                                    <g>
+                                      <line
+                                        x1={tgtBorder.x + px * 5}
+                                        y1={tgtBorder.y + py * 5}
+                                        x2={far.x}
+                                        y2={far.y}
+                                        stroke={colors.stroke}
+                                        strokeWidth={1.5}
+                                        strokeLinecap="round"
+                                      />
+                                      <line
+                                        x1={tgtBorder.x}
+                                        y1={tgtBorder.y}
+                                        x2={far.x}
+                                        y2={far.y}
+                                        stroke={colors.stroke}
+                                        strokeWidth={1.5}
+                                        strokeLinecap="round"
+                                      />
+                                      <line
+                                        x1={tgtBorder.x - px * 5}
+                                        y1={tgtBorder.y - py * 5}
+                                        x2={far.x}
+                                        y2={far.y}
+                                        stroke={colors.stroke}
+                                        strokeWidth={1.5}
+                                        strokeLinecap="round"
+                                      />
+                                    </g>
+                                  );
+                                })()}
+
+                            {/* Diamond */}
+                            <g className="cursor-pointer">
+                              <polygon
+                                points={diamondPts}
+                                fill={colors.fill}
+                                stroke={
+                                  isDiamondFocused ? "#60a5fa" : colors.stroke
+                                }
+                                strokeWidth={isDiamondFocused ? 2 : 1.5}
+                              />
+                              {lines.length > 1 ? (
+                                <text
+                                  x={dmX}
+                                  y={dmY - 3}
+                                  textAnchor="middle"
+                                  fill={
+                                    isDiamondFocused ? "#60a5fa" : colors.text
+                                  }
+                                  className="text-[8px] font-medium pointer-events-none font-sans"
+                                >
+                                  <tspan x={dmX} dy="0">
+                                    {lines[0]}
+                                  </tspan>
+                                  <tspan x={dmX} dy="8">
+                                    {lines[1].replace(/^\/\s*/, "/ ")}
+                                  </tspan>
+                                </text>
+                              ) : (
+                                <text
+                                  x={dmX}
+                                  y={dmY + 3}
+                                  textAnchor="middle"
+                                  fill={
+                                    isDiamondFocused ? "#60a5fa" : colors.text
+                                  }
+                                  className="text-[9px] font-medium pointer-events-none font-sans"
+                                >
+                                  {lines[0]}
+                                </text>
+                              )}
+                            </g>
+                          </g>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+
+              {/* C. RENDER MODE: USE CASE DIAGRAM */}
+              {(mode === "usecase" || mode === "uml") && usecaseDiagram && (
+                <>
+                  {/* 1. Draw System Boundaries */}
+                  {usecaseDiagram.systems.length > 0 ? (
+                    usecaseDiagram.systems.map((sys, sIdx) => {
+                      const sy = systemYBoundary(
+                        sIdx,
+                        usecaseDiagram.usecases.length,
+                      );
+                      return (
+                        <g key={sIdx}>
+                          <rect
+                            x={260}
+                            y={sy}
+                            width={340}
+                            height={Math.max(
+                              320,
+                              usecaseDiagram.usecases.length * 90 + 80,
+                            )}
+                            rx={8}
+                            fill="none"
+                            stroke="#52525b"
+                            strokeWidth={2}
+                            strokeDasharray="5,5"
+                          />
+                          <text
+                            x={260 + 170}
+                            y={sy + 25}
+                            textAnchor="middle"
+                            fill="#a1a1aa"
+                            className="text-xs font-medium"
+                          >
+                            {sys.name}
+                          </text>
+                        </g>
+                      );
+                    })
+                  ) : (
+                    <g>
+                      <rect
+                        x={260}
+                        y={60}
+                        width={340}
+                        height={Math.max(
+                          320,
+                          usecaseDiagram.usecases.length * 90 + 80,
+                        )}
+                        rx={8}
+                        fill="none"
+                        stroke="#52525b"
+                        strokeWidth={2}
+                        strokeDasharray="5,5"
+                      />
+                      <text
+                        x={260 + 170}
+                        y={60 + 25}
+                        textAnchor="middle"
+                        fill="#a1a1aa"
+                        className="text-xs font-medium"
+                      >
+                        System boundary
+                      </text>
+                    </g>
+                  )}
+
+                  {/* 2. Draw Connections */}
+                  {usecaseDiagram.connections.map((conn) => {
+                    let sx = 0,
+                      sy = 0,
+                      tx = 0,
+                      ty = 0;
+
+                    const actIdx = usecaseDiagram.actors.findIndex(
+                      (a) => a.id === conn.from,
                     );
-                  }
-                  if (node.type === 'end') {
+                    if (actIdx !== -1) {
+                      sx = 80 + 15;
+                      sy =
+                        60 +
+                        40 +
+                        actIdx *
+                          Math.max(
+                            120,
+                            Math.max(
+                              320,
+                              usecaseDiagram.usecases.length * 90 + 80,
+                            ) / (usecaseDiagram.actors.length || 1),
+                          ) +
+                        30;
+                    } else {
+                      const ucIdx = usecaseDiagram.usecases.findIndex(
+                        (u) => u.id === conn.from,
+                      );
+                      if (ucIdx !== -1) {
+                        sx = 260 + (340 - 160) / 2 + 80;
+                        sy = 60 + 50 + ucIdx * 85 + 30;
+                      }
+                    }
+
+                    const ucIdx = usecaseDiagram.usecases.findIndex(
+                      (u) => u.id === conn.to,
+                    );
+                    if (ucIdx !== -1) {
+                      tx = 260 + (340 - 160) / 2 + 80;
+                      ty = 60 + 50 + ucIdx * 85 + 30;
+                    } else {
+                      const actIdx = usecaseDiagram.actors.findIndex(
+                        (a) => a.id === conn.to,
+                      );
+                      if (actIdx !== -1) {
+                        tx = 80 + 15;
+                        ty =
+                          60 +
+                          40 +
+                          actIdx *
+                            Math.max(
+                              120,
+                              Math.max(
+                                320,
+                                usecaseDiagram.usecases.length * 90 + 80,
+                              ) / (usecaseDiagram.actors.length || 1),
+                            ) +
+                          30;
+                      }
+                    }
+
+                    const midX = (sx + tx) / 2;
+                    const midY = (sy + ty) / 2;
+                    return (
+                      <g key={conn.id}>
+                        <line
+                          x1={sx}
+                          y1={sy}
+                          x2={tx}
+                          y2={ty}
+                          stroke={conn.label ? "#2563eb" : "#52525b"}
+                          strokeWidth={1.5}
+                          strokeDasharray={conn.label ? "5,3" : "none"}
+                          markerEnd={
+                            conn.label ? "url(#sequence-arrow)" : undefined
+                          }
+                        />
+                        {conn.label && (
+                          <text
+                            x={midX}
+                            y={midY - 4}
+                            textAnchor="middle"
+                            fill="#2563eb"
+                            className="text-[8px] font-mono font-bold"
+                            style={{
+                              paintOrder: "stroke",
+                              stroke: "#09090b",
+                              strokeWidth: "3px",
+                            }}
+                          >
+                            {conn.label}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* 3. Draw Actors */}
+                  {usecaseDiagram.actors.map((act, idx) => {
+                    const spacing = Math.max(
+                      120,
+                      Math.max(320, usecaseDiagram.usecases.length * 90 + 80) /
+                        (usecaseDiagram.actors.length || 1),
+                    );
+                    const ay = 60 + 40 + idx * spacing;
+                    const isRight = act.side === "right";
+                    const ax = isRight ? 660 : 80;
+                    return (
+                      <g key={act.id}>
+                        <circle
+                          cx={ax + 15}
+                          cy={ay + 10}
+                          r={10}
+                          fill="#18181b"
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                        />
+                        <line
+                          x1={ax + 15}
+                          y1={ay + 20}
+                          x2={ax + 15}
+                          y2={ay + 45}
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                        />
+                        <line
+                          x1={ax}
+                          y1={ay + 28}
+                          x2={ax + 30}
+                          y2={ay + 28}
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                        />
+                        <line
+                          x1={ax + 15}
+                          y1={ay + 45}
+                          x2={ax + 5}
+                          y2={ay + 60}
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                        />
+                        <line
+                          x1={ax + 15}
+                          y1={ay + 45}
+                          x2={ax + 25}
+                          y2={ay + 60}
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                        />
+                        <text
+                          x={ax + 15}
+                          y={ay + 75}
+                          textAnchor="middle"
+                          fill="#fafafa"
+                          className="text-[10px] font-medium select-none"
+                        >
+                          {act.name}
+                        </text>
+                      </g>
+                    );
+                  })}
+
+                  {/* 4. Draw Use Cases */}
+                  {usecaseDiagram.usecases.map((uc, idx) => {
+                    let sysIdx = 0;
+                    let sy = 60;
+                    const systemHeight = Math.max(
+                      320,
+                      usecaseDiagram.usecases.length * 90 + 80,
+                    );
+                    for (
+                      let sIdx = 0;
+                      sIdx < usecaseDiagram.systems.length;
+                      sIdx++
+                    ) {
+                      if (
+                        usecaseDiagram.systems[sIdx].usecaseIds.includes(uc.id)
+                      ) {
+                        sysIdx = sIdx;
+                        sy = 60 + sysIdx * (systemHeight + 50);
+                        break;
+                      }
+                    }
+                    const localIdx =
+                      usecaseDiagram.systems.length > 0
+                        ? usecaseDiagram.systems[sysIdx].usecaseIds.indexOf(
+                            uc.id,
+                          )
+                        : idx;
+
+                    const ux = 260 + (340 - 160) / 2;
+                    const uy = sy + 50 + (localIdx >= 0 ? localIdx : 0) * 85;
+
+                    return (
+                      <g key={uc.id}>
+                        <ellipse
+                          cx={ux + 80}
+                          cy={uy + 30}
+                          rx={80}
+                          ry={30}
+                          fill="#18181b"
+                          stroke="#52525b"
+                          strokeWidth={1.5}
+                        />
+                        <text
+                          x={ux + 80}
+                          y={uy + 33.5}
+                          textAnchor="middle"
+                          fill="#fafafa"
+                          className="text-[11px] font-medium select-none"
+                        >
+                          {uc.name}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </>
+              )}
+
+              {/* D. RENDER MODE: ACTIVITY DIAGRAM */}
+              {mode === "activity" && activityDiagram && (
+                <>
+                  {/* 1. Draw flow lines */}
+                  {activityDiagram.edges.map((edge) => {
+                    let pathD = "";
+                    edge.points.forEach((pt, idx) => {
+                      pathD += `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y} `;
+                    });
+
+                    let labelX = 0,
+                      labelY = 0;
+                    if (edge.points.length >= 2) {
+                      const midIdx = Math.floor(edge.points.length / 2);
+                      labelX = edge.points[midIdx].x;
+                      labelY = edge.points[midIdx].y - 8;
+                    }
+
+                    return (
+                      <g key={edge.id}>
+                        <path
+                          d={pathD}
+                          fill="none"
+                          stroke="#2563eb"
+                          strokeWidth={1.5}
+                          markerEnd="url(#activity-arrow)"
+                        />
+                        {edge.label && (
+                          <text
+                            x={labelX}
+                            y={labelY}
+                            textAnchor="middle"
+                            fill="#2563eb"
+                            className="text-[9px] font-medium"
+                          >
+                            {edge.label}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  })}
+
+                  {/* 2. Draw nodes */}
+                  {activityDiagram.nodes.map((node) => {
+                    if (node.type === "start") {
+                      return (
+                        <circle
+                          key={node.id}
+                          cx={node.x + 15}
+                          cy={node.y + 15}
+                          r={15}
+                          fill="#16a34a"
+                          stroke="#15803d"
+                          strokeWidth={2}
+                        />
+                      );
+                    }
+                    if (node.type === "end") {
+                      return (
+                        <g key={node.id}>
+                          <circle
+                            cx={node.x + 15}
+                            cy={node.y + 15}
+                            r={15}
+                            fill="none"
+                            stroke="#dc2626"
+                            strokeWidth={2}
+                          />
+                          <circle
+                            cx={node.x + 15}
+                            cy={node.y + 15}
+                            r={8}
+                            fill="#dc2626"
+                          />
+                        </g>
+                      );
+                    }
+                    if (node.type === "decision") {
+                      const cx = node.x + 40;
+                      const cy = node.y + 40;
+                      const pts = `${cx},${cy - 40} ${cx + 40},${cy} ${cx},${cy + 40} ${cx - 40},${cy}`;
+                      return (
+                        <g key={node.id}>
+                          <polygon
+                            points={pts}
+                            fill="#09090b"
+                            stroke="#2563eb"
+                            strokeWidth={1.5}
+                          />
+                          <text
+                            x={cx}
+                            y={cy + 3.5}
+                            textAnchor="middle"
+                            fill="#fafafa"
+                            className="text-[10px] font-medium select-none"
+                          >
+                            {node.label}
+                          </text>
+                        </g>
+                      );
+                    }
+
                     return (
                       <g key={node.id}>
-                        <circle cx={node.x + 15} cy={node.y + 15} r={15} fill="none" stroke="#dc2626" strokeWidth={2} />
-                        <circle cx={node.x + 15} cy={node.y + 15} r={8} fill="#dc2626" />
+                        <rect
+                          x={node.x}
+                          y={node.y}
+                          width={node.width}
+                          height={node.height}
+                          rx={6}
+                          fill="#18181b"
+                          stroke="#52525b"
+                          strokeWidth={1.5}
+                        />
+                        <text
+                          x={node.x + node.width / 2}
+                          y={node.y + node.height / 2 + 4}
+                          textAnchor="middle"
+                          fill="#fafafa"
+                          className="text-[11px] font-medium select-none"
+                        >
+                          {node.label}
+                        </text>
                       </g>
                     );
-                  }
-                  if (node.type === 'decision') {
-                    const cx = node.x + 40;
-                    const cy = node.y + 40;
-                    const pts = `${cx},${cy-40} ${cx+40},${cy} ${cx},${cy+40} ${cx-40},${cy}`;
-                    return (
-                      <g key={node.id}>
-                        <polygon points={pts} fill="#09090b" stroke="#2563eb" strokeWidth={1.5} />
-                        <text x={cx} y={cy + 3.5} textAnchor="middle" fill="#fafafa" className="text-[10px] font-medium select-none">{node.label}</text>
-                      </g>
+                  })}
+                </>
+              )}
+
+              {/* E. RENDER MODE: SEQUENCE DIAGRAM */}
+              {mode === "sequence" && sequenceDiagram && (
+                <>
+                  {/* 1. Draw lifelines */}
+                  {sequenceDiagram.participants.map((part, idx) => {
+                    const px = 100 + idx * 220;
+                    const cx = px + 50;
+                    const sy = 60;
+                    const lifelineHeight = Math.max(
+                      300,
+                      sequenceDiagram.messages.length * 60 + 100,
                     );
-                  }
-
-                  return (
-                    <g key={node.id}>
-                      <rect x={node.x} y={node.y} width={node.width} height={node.height} rx={6} fill="#18181b" stroke="#52525b" strokeWidth={1.5} />
-                      <text x={node.x + node.width / 2} y={node.y + node.height / 2 + 4} textAnchor="middle" fill="#fafafa" className="text-[11px] font-medium select-none">{node.label}</text>
-                    </g>
-                  );
-                })}
-              </>
-            )}
-
-            {/* E. RENDER MODE: SEQUENCE DIAGRAM */}
-            {mode === 'sequence' && sequenceDiagram && (
-              <>
-                {/* 1. Draw lifelines */}
-                {sequenceDiagram.participants.map((part, idx) => {
-                  const px = 100 + idx * 220;
-                  const cx = px + 50;
-                  const sy = 60;
-                  const lifelineHeight = Math.max(300, sequenceDiagram.messages.length * 60 + 100);
-
-                  return (
-                    <g key={part.id}>
-                      <line x1={cx} y1={sy + 40} x2={cx} y2={sy + lifelineHeight} stroke="#52525b" strokeWidth={1.5} strokeDasharray="6,6" />
-                      <rect x={px} y={sy} width={100} height={40} rx={6} fill="#18181b" stroke="#52525b" strokeWidth={1.5} />
-                      <text x={cx} y={sy + 24} textAnchor="middle" fill="#fafafa" className="text-xs font-medium font-mono select-none">{part.name}</text>
-                    </g>
-                  );
-                })}
-
-                {/* 2. Draw messages arrows */}
-                {sequenceDiagram.messages.map((msg, idx) => {
-                  const fromIdx = sequenceDiagram.participants.findIndex(p => p.id === msg.from);
-                  const toIdx = sequenceDiagram.participants.findIndex(p => p.id === msg.to);
-
-                  if (fromIdx !== -1 && toIdx !== -1) {
-                    const fromCenterX = 100 + fromIdx * 220 + 50;
-                    const toCenterX = 100 + toIdx * 220 + 50;
-                    const messageY = 60 + 80 + idx * 60;
 
                     return (
-                      <g key={msg.id}>
-                        <line x1={fromCenterX} y1={messageY} x2={toCenterX} y2={messageY} stroke="#2563eb" strokeWidth={1.5} markerEnd="url(#sequence-arrow)" />
-                        <text x={(fromCenterX + toCenterX) / 2} y={messageY - 6} textAnchor="middle" fill="#a1a1aa" className="text-[10px] font-medium select-none">{msg.label}</text>
+                      <g key={part.id}>
+                        <line
+                          x1={cx}
+                          y1={sy + 40}
+                          x2={cx}
+                          y2={sy + lifelineHeight}
+                          stroke="#52525b"
+                          strokeWidth={1.5}
+                          strokeDasharray="6,6"
+                        />
+                        <rect
+                          x={px}
+                          y={sy}
+                          width={100}
+                          height={40}
+                          rx={6}
+                          fill="#18181b"
+                          stroke="#52525b"
+                          strokeWidth={1.5}
+                        />
+                        <text
+                          x={cx}
+                          y={sy + 24}
+                          textAnchor="middle"
+                          fill="#fafafa"
+                          className="text-xs font-medium font-mono select-none"
+                        >
+                          {part.name}
+                        </text>
                       </g>
                     );
-                  }
-                  return null;
-                })}
-              </>
-            )}
-          </svg>
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-zinc-450">
-            <div className="flex flex-col items-center gap-3">
-              <RefreshCw className="h-8 w-8 animate-spin text-zinc-550" />
-              <p className="text-sm font-medium">Generating diagram preview...</p>
+                  })}
+
+                  {/* 2. Draw messages arrows */}
+                  {sequenceDiagram.messages.map((msg, idx) => {
+                    const fromIdx = sequenceDiagram.participants.findIndex(
+                      (p) => p.id === msg.from,
+                    );
+                    const toIdx = sequenceDiagram.participants.findIndex(
+                      (p) => p.id === msg.to,
+                    );
+
+                    if (fromIdx !== -1 && toIdx !== -1) {
+                      const fromCenterX = 100 + fromIdx * 220 + 50;
+                      const toCenterX = 100 + toIdx * 220 + 50;
+                      const messageY = 60 + 80 + idx * 60;
+
+                      return (
+                        <g key={msg.id}>
+                          <line
+                            x1={fromCenterX}
+                            y1={messageY}
+                            x2={toCenterX}
+                            y2={messageY}
+                            stroke="#2563eb"
+                            strokeWidth={1.5}
+                            markerEnd="url(#sequence-arrow)"
+                          />
+                          <text
+                            x={(fromCenterX + toCenterX) / 2}
+                            y={messageY - 6}
+                            textAnchor="middle"
+                            fill="#a1a1aa"
+                            className="text-[10px] font-medium select-none"
+                          >
+                            {msg.label}
+                          </text>
+                        </g>
+                      );
+                    }
+                    return null;
+                  })}
+                </>
+              )}
+            </svg>
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-zinc-450">
+              <div className="flex flex-col items-center gap-3">
+                <RefreshCw className="h-8 w-8 animate-spin text-zinc-550" />
+                <p className="text-sm font-medium">
+                  Generating diagram preview...
+                </p>
+              </div>
             </div>
-          </div>
-        )}
-
+          )}
         </div>
       </div>
     </div>
@@ -1790,12 +3691,18 @@ function resolveCollisions(attrs: AttrPosition[], cx: number, cy: number) {
 
           const dxA = a.x - cx;
           const dyA = a.y - cy;
-          a.radius = Math.max(50, Math.min(350, Math.sqrt(dxA * dxA + dyA * dyA)));
+          a.radius = Math.max(
+            50,
+            Math.min(350, Math.sqrt(dxA * dxA + dyA * dyA)),
+          );
           a.angle = Math.atan2(dyA, dxA);
 
           const dxB = b.x - cx;
           const dyB = b.y - cy;
-          b.radius = Math.max(50, Math.min(350, Math.sqrt(dxB * dxB + dyB * dyB)));
+          b.radius = Math.max(
+            50,
+            Math.min(350, Math.sqrt(dxB * dxB + dyB * dyB)),
+          );
           b.angle = Math.atan2(dyB, dxB);
         }
       }

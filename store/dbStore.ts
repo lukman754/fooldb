@@ -15,7 +15,7 @@ import { parseUseCase, parseActivity, parseSequence } from '@/lib/parser/umlPars
 import { generateRelationshipVerbs } from '@/lib/ai/geminiClient';
 import { visualSchemaToSql } from '@/lib/parser/visualToSql';
 
-export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual' | 'uml';
+export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual' | 'uml' | 'class';
 
 // Debounce timer for visual layout — prevents spamming ELK.js on rapid store updates
 let visualLayoutTimer: ReturnType<typeof setTimeout> | null = null;
@@ -79,6 +79,13 @@ interface DbState {
   resetAllAttrPositions: () => void;
   relNotation: 'crowsfoot' | 'label';
   setRelNotation: (notation: 'crowsfoot' | 'label') => void;
+  lrsKeyNotation: 'stars' | 'letters';
+  setLrsKeyNotation: (notation: 'stars' | 'letters') => void;
+  classMethods: { [tableName: string]: string[] };
+  addClassMethod: (tableName: string, methodSignature: string) => void;
+  removeClassMethod: (tableName: string, index: number) => void;
+  updateClassMethod: (tableName: string, index: number, methodSignature: string) => void;
+  setClassMethods: (methods: { [tableName: string]: string[] }) => void;
 }
 
 const DEFAULT_SQL = `-- FoolDB E-commerce Sample Schema
@@ -716,7 +723,7 @@ export const useDbStore = create<DbState>((set, get) => {
         const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
         if (cachedBuilderState) {
           const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
-            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation'
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods'
           >>;
           set(cached);
           if (cached.visualSchema?.tables?.length) {
@@ -774,6 +781,40 @@ export const useDbStore = create<DbState>((set, get) => {
   },
   relNotation: 'crowsfoot',
   setRelNotation: (notation) => set({ relNotation: notation }),
+  lrsKeyNotation: 'stars',
+  setLrsKeyNotation: (notation) => set({ lrsKeyNotation: notation }),
+  classMethods: {},
+  addClassMethod: (tableName, methodSignature) => {
+    set((state) => {
+      const current = state.classMethods[tableName] || [];
+      const updated = {
+        ...state.classMethods,
+        [tableName]: [...current, methodSignature]
+      };
+      return { classMethods: updated };
+    });
+  },
+  removeClassMethod: (tableName, index) => {
+    set((state) => {
+      const current = state.classMethods[tableName] || [];
+      const updated = {
+        ...state.classMethods,
+        [tableName]: current.filter((_, idx) => idx !== index)
+      };
+      return { classMethods: updated };
+    });
+  },
+  updateClassMethod: (tableName, index, methodSignature) => {
+    set((state) => {
+      const current = state.classMethods[tableName] || [];
+      const updated = {
+        ...state.classMethods,
+        [tableName]: current.map((m, idx) => idx === index ? methodSignature : m)
+      };
+      return { classMethods: updated };
+    });
+  },
+  setClassMethods: (methods) => set({ classMethods: methods }),
 };
 });
 
@@ -787,6 +828,8 @@ if (typeof window !== 'undefined') {
       activityCode: state.activityCode,
       sequenceCode: state.sequenceCode,
       relNotation: state.relNotation,
+      lrsKeyNotation: state.lrsKeyNotation,
+      classMethods: state.classMethods,
     };
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });

@@ -13,7 +13,28 @@ function escapeXml(unsafe: string): string {
 const COLUMN_HEIGHT = 26;
 const HEADER_HEIGHT = 42;
 
-export function generateLrsXml(layoutData: LayoutData): string {
+export function formatLrsColumn(
+  colName: string,
+  isPk: boolean,
+  isFk: boolean,
+  notation: 'stars' | 'letters'
+): string {
+  let indicator = '';
+  if (notation === 'stars') {
+    if (isPk) indicator += ' *';
+    if (isFk) indicator += ' **';
+  } else {
+    const indicators: string[] = [];
+    if (isPk) indicators.push('PK');
+    if (isFk) indicators.push('FK');
+    if (indicators.length > 0) {
+      indicator += ` (${indicators.join(', ')})`;
+    }
+  }
+  return `${colName}${indicator}`;
+}
+
+export function generateLrsXml(layoutData: LayoutData, lrsKeyNotation: 'stars' | 'letters' = 'stars'): string {
   let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
   xml += '<mxfile host="app.diagrams.net">\n';
   xml += '  <diagram id="lrs-diagram" name="LRS Schema">\n';
@@ -53,8 +74,6 @@ export function generateLrsXml(layoutData: LayoutData): string {
       'separatorColor=#334155'
     ].join(';');
 
-    // Place LRS tables at node.x, node.y (we use node.width = 240 in LRS preview)
-    // Centered in the bounding box
     const cx = node.x + node.width / 2;
     const cy = node.y + node.height / 2;
     const tx = cx - 120; // width 240
@@ -73,26 +92,10 @@ export function generateLrsXml(layoutData: LayoutData): string {
       );
 
       const escapedColName = escapeXml(col.name);
-      const escapedColType = escapeXml(col.type);
       
-      let label = '';
-      if (col.isPrimaryKey) {
-        label = `<i>${escapedColName}</i>`;
-      } else {
-        label = escapedColName;
-      }
-      label += ` : ${escapedColType}`;
-
-      const indicators: string[] = [];
-      if (col.isPrimaryKey) indicators.push('PK');
-      if (isFk) indicators.push('FK');
-      if (col.isUnique && !col.isPrimaryKey) indicators.push('UQ');
-
-      if (indicators.length > 0) {
-        label += ` (${indicators.join(', ')})`;
-      }
-
-      const escapedLabel = escapeXml(label);
+      // Use formatLrsColumn to apply stars or letters
+      const formattedLabel = formatLrsColumn(escapedColName, col.isPrimaryKey, isFk, lrsKeyNotation);
+      const escapedLabel = escapeXml(formattedLabel);
 
       const colStyle = [
         'shape=partialRectangle',
@@ -112,7 +115,7 @@ export function generateLrsXml(layoutData: LayoutData): string {
         'portConstraint=eastwest',
         'whiteSpace=wrap',
         'html=1',
-        'fontColor=#94a3b8',
+        'fontColor=#ffffff',
         col.isPrimaryKey ? 'fontStyle=2' : 'fontStyle=0'
       ].join(';');
 

@@ -52,3 +52,35 @@ export async function generateRelationshipVerbs(schema: DatabaseSchema, apiKey: 
     throw new Error(msg || 'Failed to connect to the local AI analysis server.');
   }
 }
+
+export async function generateClassMethods(
+  tableName: string,
+  columns: { name: string; type: string }[],
+  apiKey: string
+): Promise<string[]> {
+  if (!apiKey) {
+    throw new Error('API Key is required. Please set your Gemini API Key in the Header settings (key icon).');
+  }
+
+  try {
+    const res = await fetch('/api/generate-methods', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ apiKey, tableName, columns }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to generate methods with Gemini AI.');
+    }
+
+    const parsedMethods = await res.json();
+    return parsedMethods;
+  } catch (err: unknown) {
+    console.error('Gemini API call failed:', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(msg || 'Failed to connect to the local AI analysis server.');
+  }
+}

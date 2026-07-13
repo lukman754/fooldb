@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useRef, useEffect } from "react";
 import { useDbStore } from "@/store/dbStore";
@@ -161,24 +161,27 @@ export default function UmlBuilder() {
   return (
     <div className="h-full flex flex-col bg-zinc-950 overflow-hidden">
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2.5 bg-zinc-950 shrink-0">
-        <span className="text-xs font-semibold text-zinc-300">UML Builder</span>
-        <span className="text-[10px] text-zinc-600">
-          {actors.length} actor{actors.length !== 1 ? "s" : ""} &middot; {usecases.length} use case{usecases.length !== 1 ? "s" : ""} &middot; {relations.length} relation{relations.length !== 1 ? "s" : ""}
-        </span>
-        <div className="flex-1" />
-        <button onClick={() => setShowAddActor(true)}
-          className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-2.5 py-1.5 text-[10px] font-medium text-white hover:bg-indigo-500 transition-colors">
-          <User className="h-3 w-3" /> Actor
-        </button>
-        <button onClick={() => setShowAddUsecase(true)}
-          className="flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1.5 text-[10px] font-medium text-white hover:bg-emerald-500 transition-colors">
-          <Activity className="h-3 w-3" /> Use Case
-        </button>
-        <button onClick={() => setShowAddRelation(true)}
-          className="flex items-center gap-1.5 rounded-md bg-amber-600 px-2.5 py-1.5 text-[10px] font-medium text-white hover:bg-amber-500 transition-colors">
-          <GitBranch className="h-3 w-3" /> Include/Extend
-        </button>
+      <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5 bg-zinc-950 shrink-0 flex-wrap justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-zinc-300 whitespace-nowrap">UML Builder</span>
+          <span className="text-[10px] text-zinc-550 whitespace-nowrap">
+            {actors.length} actors &middot; {usecases.length} UCs &middot; {relations.length} rels
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button onClick={() => setShowAddActor(true)}
+            className="flex items-center gap-1.5 rounded bg-indigo-600 px-2 py-1.5 text-[10px] font-medium text-white hover:bg-indigo-500 transition-colors whitespace-nowrap">
+            <User className="h-3 w-3" /> Actor
+          </button>
+          <button onClick={() => setShowAddUsecase(true)}
+            className="flex items-center gap-1.5 rounded bg-emerald-600 px-2 py-1.5 text-[10px] font-medium text-white hover:bg-emerald-500 transition-colors whitespace-nowrap">
+            <Activity className="h-3 w-3" /> Use Case
+          </button>
+          <button onClick={() => setShowAddRelation(true)}
+            className="flex items-center gap-1.5 rounded bg-amber-600 px-2 py-1.5 text-[10px] font-medium text-white hover:bg-amber-500 transition-colors whitespace-nowrap">
+            <GitBranch className="h-3 w-3" /> Include/Extend
+          </button>
+        </div>
       </div>
 
       {/* ── Add Actor Input ── */}
@@ -230,7 +233,7 @@ export default function UmlBuilder() {
       )}
 
       {/* ── Content ── */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-4">
+      <div className="flex-1 overflow-y-auto p-3 space-y-4 scrollbar-mini">
         {/* ── Actors ── */}
         {actors.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3 text-center px-6">
@@ -289,7 +292,7 @@ export default function UmlBuilder() {
                       <Plus className="h-3 w-3" /> Link Use Case
                     </button>
                     {openLinkActor === actor.id && (
-                      <div className="mt-1 rounded border border-zinc-700 bg-zinc-900 p-1 max-h-40 overflow-y-auto z-10">
+                      <div className="mt-1 rounded border border-zinc-700 bg-zinc-900 p-1 max-h-40 overflow-y-auto z-10 scrollbar-mini">
                         {unlinkedUsecases.length === 0 ? (
                           <p className="px-2 py-1 text-[10px] text-zinc-600 italic">All use cases linked</p>
                         ) : unlinkedUsecases.map(uc => (

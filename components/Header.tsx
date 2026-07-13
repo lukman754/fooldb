@@ -5,9 +5,11 @@ import { useDbStore, AppMode } from '@/store/dbStore';
 import { exportToSvg, exportToPng, downloadFile } from '@/lib/export/exportHelper';
 import { generateDrawioXml } from '@/lib/xml/drawioGenerator';
 import { generateLrsXml } from '@/lib/xml/lrsGenerator';
+import { generateTransformationXml } from '@/lib/xml/transformationGenerator';
 import { generateUseCaseXml } from '@/lib/xml/usecaseGenerator';
 import { generateActivityXml } from '@/lib/xml/activityGenerator';
 import { generateSequenceXml } from '@/lib/xml/sequenceGenerator';
+import { generateClassXml } from '@/lib/xml/classGenerator';
 import { validateApiKey } from '@/lib/ai/geminiClient';
 import { 
   Database, 
@@ -234,6 +236,7 @@ const NAV_TABS: { id: AppMode; label: string; shortLabel: string }[] = [
   { id: 'erd',            label: 'Chen ERD',           shortLabel: 'Chen ERD' },
   { id: 'lrs',            label: 'LRS Schema',         shortLabel: 'LRS' },
   { id: 'transformation', label: 'ERD ➔ LRS',          shortLabel: 'ERD→LRS' },
+  { id: 'class',          label: 'Class Diagram',      shortLabel: 'Class' },
   { id: 'uml',            label: 'UML Builder',        shortLabel: 'UML' },
   { id: 'usecase',        label: 'Use Case',           shortLabel: 'Use Case' },
   { id: 'activity',       label: 'Activity',           shortLabel: 'Activity' },
@@ -257,6 +260,8 @@ export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
   const sequenceDiagram = useDbStore((state) => state.sequenceDiagram);
   const attrPositions = useDbStore((state) => state.attrPositions);
   const relNotation = useDbStore((state) => state.relNotation);
+  const lrsKeyNotation = useDbStore((state) => state.lrsKeyNotation);
+  const classMethods = useDbStore((state) => state.classMethods);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -335,7 +340,7 @@ export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
 
   // Check if diagram is generated and can be exported
   let isExportable = false;
-  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual') {
+  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual' || mode === 'class') {
     isExportable = layout !== null;
   } else if (mode === 'usecase' || mode === 'uml') {
     isExportable = usecaseDiagram !== null;
@@ -353,9 +358,15 @@ export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
     if (mode === 'erd' || mode === 'visual') {
       if (layout) xml = generateDrawioXml(layout, attrPositions, relNotation);
       filenameBase = mode === 'visual' ? 'visual_erd' : 'database_erd';
-    } else if (mode === 'lrs' || mode === 'transformation') {
-      if (layout) xml = generateLrsXml(layout);
+    } else if (mode === 'lrs') {
+      if (layout) xml = generateLrsXml(layout, lrsKeyNotation);
       filenameBase = 'database_lrs';
+    } else if (mode === 'transformation') {
+      if (layout) xml = generateTransformationXml(layout, lrsKeyNotation);
+      filenameBase = 'database_transformation';
+    } else if (mode === 'class') {
+      if (layout) xml = generateClassXml(layout, classMethods, relNotation);
+      filenameBase = 'database_class';
     } else if (mode === 'usecase') {
       if (usecaseDiagram) xml = generateUseCaseXml(usecaseDiagram);
       filenameBase = 'usecase_diagram';
@@ -468,11 +479,11 @@ export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 z-40 bg-black/60 md:hidden"
+            className="fixed inset-0 z-[9999998] bg-black/60 md:hidden"
             onClick={() => setShowMobileNav(false)}
           />
           {/* Drawer panel */}
-          <div className="fixed right-0 top-0 h-full w-64 z-50 bg-zinc-950 border-l border-zinc-800 flex flex-col shadow-2xl md:hidden">
+          <div className="fixed right-0 top-0 h-full w-64 z-[9999999] bg-zinc-950 border-l border-zinc-800 flex flex-col shadow-2xl md:hidden">
             {/* Drawer header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
               <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">Switch Mode</span>

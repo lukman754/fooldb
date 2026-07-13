@@ -18,7 +18,7 @@ export default function TransformationGuide() {
           <p className="text-zinc-400 text-xs leading-relaxed">
             Each entity rectangle in the Chen ERD maps to a separate table block in LRS. For your current schema:
           </p>
-          <div className="grid grid-cols-1 gap-2 max-h-[220px] overflow-y-auto pr-1">
+          <div className="grid grid-cols-1 gap-2 max-h-[220px] overflow-y-auto pr-1 scrollbar-mini">
             {schema.tables.map((table) => (
               <div key={table.name} className="flex items-center gap-2 p-2 rounded bg-zinc-900/60 border border-zinc-800">
                 <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
@@ -45,7 +45,7 @@ export default function TransformationGuide() {
           <p className="text-zinc-400 text-xs leading-relaxed">
             In LRS, attributes are stacked vertically inside the table boxes. Underlined primary keys are marked with a blue PK badge:
           </p>
-          <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+          <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1 scrollbar-mini">
             {schema.tables.map((table) => {
               const pks = table.columns.filter(c => c.isPrimaryKey);
               return (
@@ -80,7 +80,7 @@ export default function TransformationGuide() {
           <p className="text-zinc-400 text-xs leading-relaxed">
             Foreign keys link child tables back to parent tables. 1:N relations result in FK columns on the many side, while N:M relations require a Junction table:
           </p>
-          <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+          <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-mini">
             {schema.relationships.length > 0 ? (
               schema.relationships.map((rel) => (
                 <div key={rel.id} className="p-2 rounded bg-zinc-900/60 border border-zinc-800 flex flex-col gap-1">
@@ -163,7 +163,7 @@ export default function TransformationGuide() {
       </div>
 
       {/* Step Body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-mini">
         <div>
           <h3 className="text-xs font-semibold text-zinc-200 mb-1">{steps[activeStep].title}</h3>
           <p className="text-[11px] text-zinc-400 leading-relaxed font-medium">{steps[activeStep].desc}</p>

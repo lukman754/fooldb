@@ -7,6 +7,7 @@ import SqlEditor from '@/components/editor/SqlEditor';
 import TransformationGuide from '@/components/editor/TransformationGuide';
 import VisualEditor from '@/components/editor/VisualEditor';
 import UmlBuilder from '@/components/editor/UmlBuilder';
+import ClassEditor from '@/components/editor/ClassEditor';
 import DrawioPreview from '@/components/preview/DrawioPreview';
 import { useDbStore } from '@/store/dbStore';
 
@@ -67,6 +68,7 @@ export default function Home() {
   const renderSidebarContent = () => {
     if (mode === 'visual') return <VisualEditor />;
     if (mode === 'uml') return <UmlBuilder />;
+    if (mode === 'class') return <ClassEditor />;
     if (mode === 'transformation' && !visualSchemaActive) return <TransformationGuide />;
     return <SqlEditor />;
   };
