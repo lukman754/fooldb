@@ -3403,28 +3403,30 @@ export default function DrawioPreview() {
                 const PAD_X = 24;
                 const PAD_Y = 48;
 
-                // Build level map via BFS from start nodes (each node visited ONCE)
+                // Build level map via BFS — use visited Set to guarantee each node is processed exactly once
                 const levels: Record<string, number> = {};
-                const bfsQ = fd.nodes.filter(n => n.type === 'start');
-                if (bfsQ.length === 0 && fd.nodes.length > 0) bfsQ.push(fd.nodes[0]);
-                bfsQ.forEach(q => { levels[q.id] = 0; });
+                const visited = new Set<string>();
+                const startNodes = fd.nodes.filter((n: { id: string; type: string }) => n.type === 'start');
+                const bfsQ: typeof fd.nodes = startNodes.length > 0 ? [...startNodes] : fd.nodes.slice(0, 1);
+                bfsQ.forEach((q: { id: string }) => { levels[q.id] = 0; visited.add(q.id); });
                 let qi = 0;
-                while (qi < bfsQ.length) {
+                while (qi < bfsQ.length && qi < 10000) {  // safety cap
                   const cur = bfsQ[qi++];
-                  const cl = levels[cur.id];
+                  const cl = levels[cur.id] ?? 0;
                   const targets: string[] = [
                     ...(cur.nextIds || []),
                     ...(cur.branches || []).map((b: { condition: string; targetId: string }) => b.targetId).filter(Boolean)
                   ];
                   for (const t of targets) {
-                    if (levels[t] === undefined) {  // only visit each node once — prevents infinite loop
+                    if (t && !visited.has(t)) {
+                      visited.add(t);
                       levels[t] = cl + 1;
-                      const tn = fd.nodes.find(n => n.id === t);
+                      const tn = fd.nodes.find((n: { id: string }) => n.id === t);
                       if (tn) bfsQ.push(tn);
                     }
                   }
                 }
-                fd.nodes.forEach(n => { if (levels[n.id] === undefined) levels[n.id] = 0; });
+                fd.nodes.forEach((n: { id: string }) => { if (levels[n.id] === undefined) levels[n.id] = 0; });
 
                 const maxLevel = Math.max(0, ...Object.values(levels));
                 const totalH = PAD_Y + (maxLevel + 1) * LEVEL_H + PAD_Y + 20;
