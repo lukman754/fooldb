@@ -48,7 +48,7 @@ function buildDiagram(actors: UmlActor[], usecases: UmlUsecase[], links: UmlLink
 function generateUseCaseDsl(actors: UmlActor[], usecases: UmlUsecase[], links: UmlLink[], relations: UmlRelation[]): string {
   let lines: string[] = [];
   actors.forEach(a => {
-    lines.push(`actor "${a.name}"`);
+    lines.push(`actor "${a.name}" ${a.side}`);
   });
   lines.push('system "System Boundary"');
   usecases.forEach(u => {

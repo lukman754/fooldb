@@ -72,11 +72,11 @@ export default function SqlEditor() {
           <select
             value={selectedUsecaseId || ''}
             onChange={(e) => setSelectedUsecaseId(e.target.value || null)}
-            className="bg-zinc-850 border border-zinc-700 rounded px-2.5 py-1 text-xs text-zinc-200 outline-none focus:border-blue-600 transition max-w-[180px] font-medium"
+            className="bg-zinc-800 border border-zinc-700 rounded px-2.5 py-1 text-xs text-zinc-100 outline-none focus:border-blue-600 transition max-w-[180px] font-medium"
           >
-            <option value="">-- Global Diagram --</option>
+            <option value="" className="bg-zinc-900 text-zinc-100">-- Global Diagram --</option>
             {usecases.map((uc) => (
-              <option key={uc.id} value={uc.id}>
+              <option key={uc.id} value={uc.id} className="bg-zinc-900 text-zinc-100">
                 {uc.name}
               </option>
             ))}

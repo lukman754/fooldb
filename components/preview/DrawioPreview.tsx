@@ -205,8 +205,10 @@ export default function DrawioPreview() {
     }
   } else if (mode === "usecase" || mode === "uml") {
     if (usecaseDiagram) {
-      canvasWidth = 720;
-      canvasHeight = Math.max(400, usecaseDiagram.usecases.length * 90 + 120);
+      canvasWidth = 750;
+      const systemHeight = Math.max(320, usecaseDiagram.usecases.length * 90 + 80);
+      const systemsCount = Math.max(1, usecaseDiagram.systems.length);
+      canvasHeight = Math.max(400, 60 + systemsCount * (systemHeight + 50) + 50);
       hasDiagramData = true;
     }
   } else if (mode === "activity") {
@@ -3177,74 +3179,58 @@ export default function DrawioPreview() {
                   )}
 
                   {/* 2. Draw Connections */}
-                  {usecaseDiagram.connections.map((conn) => {
-                    let sx = 0,
-                      sy = 0,
-                      tx = 0,
-                      ty = 0;
-
-                    const actIdx = usecaseDiagram.actors.findIndex(
-                      (a) => a.id === conn.from,
-                    );
-                    if (actIdx !== -1) {
-                      const actorObj = usecaseDiagram.actors[actIdx];
-                      const isRight = actorObj.side === "right";
-                      sx = (isRight ? 660 : 80) + 15;
-                      sy =
-                        60 +
-                        40 +
-                        actIdx *
-                          Math.max(
-                            120,
-                            Math.max(
-                              320,
-                              usecaseDiagram.usecases.length * 90 + 80,
-                            ) / (usecaseDiagram.actors.length || 1),
-                          ) +
-                        30;
-                    } else {
-                      const ucIdx = usecaseDiagram.usecases.findIndex(
-                        (u) => u.id === conn.from,
+                  {usecaseDiagram.connections.map((conn, cIdx) => {
+                    const getActorCoords = (id: string) => {
+                      const idx = usecaseDiagram.actors.findIndex(a => a.id === id);
+                      if (idx === -1) return null;
+                      const act = usecaseDiagram.actors[idx];
+                      const spacing = Math.max(
+                        120,
+                        Math.max(320, usecaseDiagram.usecases.length * 90 + 80) /
+                          (usecaseDiagram.actors.length || 1)
                       );
-                      if (ucIdx !== -1) {
-                        sx = 260 + (340 - 160) / 2 + 80;
-                        sy = 60 + 50 + ucIdx * 85 + 30;
+                      const isRight = act.side === "right";
+                      return {
+                        x: (isRight ? 660 : 80) + 15,
+                        y: 60 + 40 + idx * spacing + 30
+                      };
+                    };
+                    const getUsecaseCoords = (id: string) => {
+                      const idx = usecaseDiagram.usecases.findIndex(u => u.id === id);
+                      if (idx === -1) return null;
+                      let sysIdx = 0;
+                      let sy = 60;
+                      const systemHeight = Math.max(320, usecaseDiagram.usecases.length * 90 + 80);
+                      for (let sIdx = 0; sIdx < usecaseDiagram.systems.length; sIdx++) {
+                        if (usecaseDiagram.systems[sIdx].usecaseIds.includes(id)) {
+                          sysIdx = sIdx;
+                          sy = 60 + sysIdx * (systemHeight + 50);
+                          break;
+                        }
                       }
-                    }
+                      const localIdx = usecaseDiagram.systems.length > 0 
+                        ? usecaseDiagram.systems[sysIdx].usecaseIds.indexOf(id) 
+                        : idx;
+                      return {
+                        x: 260 + (340 - 160) / 2 + 80,
+                        y: sy + 50 + (localIdx >= 0 ? localIdx : 0) * 85 + 30
+                      };
+                    };
+                    
+                    const fromCoords = getActorCoords(conn.from) || getUsecaseCoords(conn.from);
+                    const toCoords = getActorCoords(conn.to) || getUsecaseCoords(conn.to);
 
-                    const ucIdx = usecaseDiagram.usecases.findIndex(
-                      (u) => u.id === conn.to,
-                    );
-                    if (ucIdx !== -1) {
-                      tx = 260 + (340 - 160) / 2 + 80;
-                      ty = 60 + 50 + ucIdx * 85 + 30;
-                    } else {
-                      const actIdx = usecaseDiagram.actors.findIndex(
-                        (a) => a.id === conn.to,
-                      );
-                      if (actIdx !== -1) {
-                        const actorObj = usecaseDiagram.actors[actIdx];
-                        const isRight = actorObj.side === "right";
-                        tx = (isRight ? 660 : 80) + 15;
-                        ty =
-                          60 +
-                          40 +
-                          actIdx *
-                            Math.max(
-                              120,
-                              Math.max(
-                                320,
-                                usecaseDiagram.usecases.length * 90 + 80,
-                              ) / (usecaseDiagram.actors.length || 1),
-                            ) +
-                          30;
-                      }
-                    }
+                    if (!fromCoords || !toCoords) return null;
+
+                    const sx = fromCoords.x;
+                    const sy = fromCoords.y;
+                    const tx = toCoords.x;
+                    const ty = toCoords.y;
 
                     const midX = (sx + tx) / 2;
                     const midY = (sy + ty) / 2;
                     return (
-                      <g key={conn.id}>
+                      <g key={`${conn.id}-${cIdx}`}>
                         <line
                           x1={sx}
                           y1={sy}

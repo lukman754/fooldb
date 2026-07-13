@@ -156,6 +156,9 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
 }
 
 export async function computeActivityLayout(diagram: ActivityDiagram): Promise<ActivityLayoutData> {
+  if (!diagram || !diagram.nodes || diagram.nodes.length === 0) {
+    return { nodes: [], edges: [], width: 100, height: 100 };
+  }
   const children: ElkNode[] = [];
   const edges: ElkExtendedEdge[] = [];
 

@@ -42,10 +42,19 @@ export function parseUseCase(code: string): UseCaseDiagram {
     if (/^actor\s+/i.test(line)) {
       const match = line.match(/^actor\s+(.+)$/i);
       if (match) {
-        const name = cleanQuotes(match[1]);
+        let namePart = match[1].trim();
+        let side: 'left' | 'right' = 'left';
+        if (/\s+right$/i.test(namePart)) {
+          side = 'right';
+          namePart = namePart.replace(/\s+right$/i, '').trim();
+        } else if (/\s+left$/i.test(namePart)) {
+          side = 'left';
+          namePart = namePart.replace(/\s+left$/i, '').trim();
+        }
+        const name = cleanQuotes(namePart);
         const id = name.toLowerCase().replace(/\s+/g, '_');
         if (!actors.some(a => a.id === id)) {
-          actors.push({ id, name });
+          actors.push({ id, name, side } as any);
         }
       }
       continue;
@@ -82,8 +91,15 @@ export function parseUseCase(code: string): UseCaseDiagram {
     if (line.includes('->')) {
       const parts = line.split('->');
       if (parts.length === 2) {
+        let targetStr = parts[1].trim();
+        let label = undefined;
+        const matchLabel = targetStr.match(/<<(.*?)>>/);
+        if (matchLabel) {
+          label = matchLabel[1];
+          targetStr = targetStr.replace(/<<.*?>>/, '').trim();
+        }
         const fromName = cleanQuotes(parts[0]);
-        const toName = cleanQuotes(parts[1]);
+        const toName = cleanQuotes(targetStr);
         
         const fromId = fromName.toLowerCase().replace(/\s+/g, '_');
         const toId = toName.toLowerCase().replace(/\s+/g, '_');
@@ -91,8 +107,9 @@ export function parseUseCase(code: string): UseCaseDiagram {
         connections.push({
           id: `uc_conn_${connIdCounter++}`,
           from: fromId,
-          to: toId
-        });
+          to: toId,
+          label
+        } as any);
       }
     }
   }
