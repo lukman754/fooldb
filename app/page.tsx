@@ -40,7 +40,8 @@ export default function Home() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  useEffect(() => { triggerParse(); }, [triggerParse]);
+  const initializeFromCache = useDbStore((state) => state.initializeFromCache);
+  useEffect(() => { initializeFromCache(); }, [initializeFromCache]);
 
   // Close mobile sidebar when switching modes
   useEffect(() => {

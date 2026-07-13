@@ -634,6 +634,21 @@ export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
           )}
         </div>
 
+        {/* Reset / Clear Data */}
+        <button
+          onClick={() => {
+            if (window.confirm("Are you sure you want to clear all data and reset? This cannot be undone.")) {
+              localStorage.clear();
+              window.location.reload();
+            }
+          }}
+          className="flex h-8 items-center justify-center gap-1.5 rounded bg-red-950/30 px-3 text-xs font-medium text-red-400 border border-red-900/50 hover:bg-red-900/50 hover:text-red-200 transition-colors"
+          title="Clear all data and reset"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Reset</span>
+        </button>
+
         {/* Gemini API Key */}
         <div className="relative">
           <button
