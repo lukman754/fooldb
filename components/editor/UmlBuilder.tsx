@@ -80,6 +80,8 @@ export default function UmlBuilder() {
   const setLinks = useDbStore((state) => state.setUmlLinks);
   const relations = useDbStore((state) => state.umlRelations);
   const setRelations = useDbStore((state) => state.setUmlRelations);
+  const selectedUsecaseId = useDbStore((state) => state.selectedUsecaseId);
+  const setSelectedUsecaseId = useDbStore((state) => state.setSelectedUsecaseId);
 
   const [showAddActor, setShowAddActor] = useState(false);
   const [showAddUsecase, setShowAddUsecase] = useState(false);
@@ -311,13 +313,28 @@ export default function UmlBuilder() {
               <p className="text-[10px] text-zinc-600 italic px-1">No use cases yet</p>
             ) : usecases.map(uc => {
               const linkCount = links.filter(l => l.usecaseId === uc.id).length;
+              const isSelected = selectedUsecaseId === uc.id;
               return (
-                <div key={uc.id} className="flex items-center gap-2 px-2 py-1 rounded hover:bg-zinc-800/60 transition-colors group">
-                  <Activity className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                  <InlineEdit value={uc.name} onCommit={(v) => handleRenameUsecase(uc.id, v)}
-                    className="text-xs text-zinc-300 flex-1" />
-                  <span className="text-[9px] text-zinc-600">{linkCount} link{linkCount !== 1 ? "s" : ""}</span>
-                  <button onClick={() => handleRemoveUsecase(uc.id)} className="text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100" title="Delete use case">
+                <div
+                  key={uc.id}
+                  onClick={() => setSelectedUsecaseId(isSelected ? null : uc.id)}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-all group border ${
+                    isSelected
+                      ? "bg-blue-950/30 border-blue-800/50 text-blue-300"
+                      : "hover:bg-zinc-800/60 border-transparent text-zinc-300"
+                  }`}
+                >
+                  <Activity className={`h-3.5 w-3.5 shrink-0 ${isSelected ? "text-blue-400" : "text-emerald-400"}`} />
+                  <div className="flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                    <InlineEdit value={uc.name} onCommit={(v) => handleRenameUsecase(uc.id, v)}
+                      className="text-xs font-medium" />
+                  </div>
+                  <span className="text-[9px] text-zinc-600 shrink-0">{linkCount} link{linkCount !== 1 ? "s" : ""}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRemoveUsecase(uc.id); }}
+                    className="text-zinc-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                    title="Delete use case"
+                  >
                     <Trash2 className="h-3 w-3" />
                   </button>
                 </div>

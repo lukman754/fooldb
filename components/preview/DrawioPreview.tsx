@@ -3187,7 +3187,9 @@ export default function DrawioPreview() {
                       (a) => a.id === conn.from,
                     );
                     if (actIdx !== -1) {
-                      sx = 80 + 15;
+                      const actorObj = usecaseDiagram.actors[actIdx];
+                      const isRight = actorObj.side === "right";
+                      sx = (isRight ? 660 : 80) + 15;
                       sy =
                         60 +
                         40 +
@@ -3221,7 +3223,9 @@ export default function DrawioPreview() {
                         (a) => a.id === conn.to,
                       );
                       if (actIdx !== -1) {
-                        tx = 80 + 15;
+                        const actorObj = usecaseDiagram.actors[actIdx];
+                        const isRight = actorObj.side === "right";
+                        tx = (isRight ? 660 : 80) + 15;
                         ty =
                           60 +
                           40 +

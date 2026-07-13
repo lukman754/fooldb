@@ -14,6 +14,13 @@ export default function SqlEditor() {
   const setCode = useDbStore((state) => state.setCode);
   const triggerParse = useDbStore((state) => state.triggerParse);
 
+  // Mapped code states per use case
+  const activityCodes = useDbStore((state) => state.activityCodes);
+  const sequenceCodes = useDbStore((state) => state.sequenceCodes);
+  const selectedUsecaseId = useDbStore((state) => state.selectedUsecaseId);
+  const setSelectedUsecaseId = useDbStore((state) => state.setSelectedUsecaseId);
+  const usecases = useDbStore((state) => state.umlUsecases);
+
   // Determine active code and language based on the workflow mode
   let activeCode = sqlCode;
   let activeLanguage = 'sql';
@@ -22,21 +29,22 @@ export default function SqlEditor() {
     activeCode = usecaseCode;
     activeLanguage = 'markdown';
   } else if (mode === 'activity') {
-    activeCode = activityCode;
+    activeCode = selectedUsecaseId ? (activityCodes[selectedUsecaseId] || '') : activityCode;
     activeLanguage = 'markdown';
   } else if (mode === 'sequence') {
-    activeCode = sequenceCode;
+    activeCode = selectedUsecaseId ? (sequenceCodes[selectedUsecaseId] || '') : sequenceCode;
     activeLanguage = 'markdown';
   }
 
   const isVisualBuilderSql = visualSchemaActive && (mode === 'erd' || mode === 'lrs' || mode === 'transformation');
+  const hasUsecaseHeader = (mode === 'activity' || mode === 'sequence');
 
   const [value, setValue] = useState(activeCode);
 
-  // Sync value when the active code or mode changes
+  // Sync value when the active code, mode, or selected use case changes
   useEffect(() => {
     setValue(activeCode);
-  }, [activeCode, mode]);
+  }, [activeCode, mode, selectedUsecaseId]);
 
   // Debounce parsing when typing
   useEffect(() => {
@@ -47,7 +55,7 @@ export default function SqlEditor() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [value, mode, setCode, triggerParse, isVisualBuilderSql]);
+  }, [value, mode, setCode, triggerParse, isVisualBuilderSql, selectedUsecaseId]);
 
   return (
     <div className="h-full w-full border-r border-zinc-800 bg-zinc-900">
@@ -56,8 +64,33 @@ export default function SqlEditor() {
           SQL generated from Visual Builder (read-only)
         </div>
       )}
+      {hasUsecaseHeader && (
+        <div className="flex h-10 items-center justify-between border-b border-zinc-800 bg-zinc-950/20 px-3 text-[11px]">
+          <span className="font-medium text-zinc-400">
+            {mode === 'activity' ? 'Activity Diagram' : 'Sequence Diagram'} for:
+          </span>
+          <select
+            value={selectedUsecaseId || ''}
+            onChange={(e) => setSelectedUsecaseId(e.target.value || null)}
+            className="bg-zinc-850 border border-zinc-700 rounded px-2.5 py-1 text-xs text-zinc-200 outline-none focus:border-blue-600 transition max-w-[180px] font-medium"
+          >
+            <option value="">-- Global Diagram --</option>
+            {usecases.map((uc) => (
+              <option key={uc.id} value={uc.id}>
+                {uc.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <Editor
-        height={isVisualBuilderSql ? "calc(100% - 32px)" : "100%"}
+        height={
+          isVisualBuilderSql 
+            ? "calc(100% - 32px)" 
+            : hasUsecaseHeader 
+              ? "calc(100% - 40px)" 
+              : "100%"
+        }
         language={activeLanguage}
         theme="vs-dark"
         value={value}

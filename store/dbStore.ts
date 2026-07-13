@@ -64,6 +64,10 @@ interface DbState {
   usecaseCode: string;
   activityCode: string;
   sequenceCode: string;
+  selectedUsecaseId: string | null;
+  setSelectedUsecaseId: (id: string | null) => void;
+  activityCodes: { [usecaseId: string]: string };
+  sequenceCodes: { [usecaseId: string]: string };
   excludedTables: string[];
   apiKey: string;
   isAiLoading: boolean;
@@ -279,11 +283,21 @@ export const useDbStore = create<DbState>((set, get) => {
     setUmlLinks: (links) => set((state) => ({ umlLinks: typeof links === 'function' ? links(state.umlLinks) : links })),
     setUmlRelations: (relations) => set((state) => ({ umlRelations: typeof relations === 'function' ? relations(state.umlRelations) : relations })),
     mode: 'erd',
-  sqlCode: DEFAULT_SQL,
-  usecaseCode: DEFAULT_USECASE,
-  activityCode: DEFAULT_ACTIVITY,
-  sequenceCode: DEFAULT_SEQUENCE,
-  excludedTables: [],
+    sqlCode: DEFAULT_SQL,
+    usecaseCode: DEFAULT_USECASE,
+    activityCode: DEFAULT_ACTIVITY,
+    sequenceCode: DEFAULT_SEQUENCE,
+    selectedUsecaseId: null,
+    setSelectedUsecaseId: (id) => {
+      set({ selectedUsecaseId: id });
+      const currentMode = get().mode;
+      if (currentMode === 'activity' || currentMode === 'sequence') {
+        get().triggerParse(currentMode);
+      }
+    },
+    activityCodes: {},
+    sequenceCodes: {},
+    excludedTables: [],
   apiKey: '',
   isAiLoading: false,
   
@@ -582,9 +596,23 @@ export const useDbStore = create<DbState>((set, get) => {
     } else if (mode === 'usecase') {
       set({ usecaseCode: code });
     } else if (mode === 'activity') {
-      set({ activityCode: code });
+      const selectedId = get().selectedUsecaseId;
+      if (selectedId) {
+        set((state) => ({
+          activityCodes: { ...state.activityCodes, [selectedId]: code }
+        }));
+      } else {
+        set({ activityCode: code });
+      }
     } else if (mode === 'sequence') {
-      set({ sequenceCode: code });
+      const selectedId = get().selectedUsecaseId;
+      if (selectedId) {
+        set((state) => ({
+          sequenceCodes: { ...state.sequenceCodes, [selectedId]: code }
+        }));
+      } else {
+        set({ sequenceCode: code });
+      }
     }
   },
 
@@ -643,7 +671,13 @@ export const useDbStore = create<DbState>((set, get) => {
           error: null
         });
       } else if (targetMode === 'activity') {
-        const code = codeArg !== undefined ? codeArg : get().activityCode;
+        const selectedId = get().selectedUsecaseId;
+        const selectedUsecase = get().umlUsecases.find(u => u.id === selectedId);
+        const usecaseName = selectedUsecase ? selectedUsecase.name : 'Use Case';
+        const defaultForUsecase = `start\n:${usecaseName} process;\nstop\n`;
+        const code = codeArg !== undefined 
+          ? codeArg 
+          : (selectedId ? (get().activityCodes[selectedId] ?? defaultForUsecase) : get().activityCode);
         const parsed = parseActivity(code);
         const activityDiagram = await computeActivityLayout(parsed);
         
@@ -654,7 +688,13 @@ export const useDbStore = create<DbState>((set, get) => {
           error: null
         });
       } else if (targetMode === 'sequence') {
-        const code = codeArg !== undefined ? codeArg : get().sequenceCode;
+        const selectedId = get().selectedUsecaseId;
+        const selectedUsecase = get().umlUsecases.find(u => u.id === selectedId);
+        const usecaseName = selectedUsecase ? selectedUsecase.name : 'Use Case';
+        const defaultForUsecase = `User -> System : Start ${usecaseName}\nSystem -> Database : Fetch details\nDatabase -> System : Return record\nSystem -> User : Display success\n`;
+        const code = codeArg !== undefined 
+          ? codeArg 
+          : (selectedId ? (get().sequenceCodes[selectedId] ?? defaultForUsecase) : get().sequenceCode);
         const sequenceDiagram = parseSequence(code);
         
         const duration = performance.now() - startTime;
@@ -789,7 +829,7 @@ export const useDbStore = create<DbState>((set, get) => {
         const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
         if (cachedBuilderState) {
           const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
-            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations'
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations' | 'selectedUsecaseId' | 'activityCodes' | 'sequenceCodes'
           >>;
           set({
             ...cached,
@@ -906,6 +946,9 @@ export const useDbStore = create<DbState>((set, get) => {
       usecaseCode: DEFAULT_USECASE,
       activityCode: DEFAULT_ACTIVITY,
       sequenceCode: DEFAULT_SEQUENCE,
+      selectedUsecaseId: null,
+      activityCodes: {},
+      sequenceCodes: {},
       excludedTables: [],
       visualSchema: { tables: [], relationships: [] },
       visualSchemaActive: false,
@@ -942,6 +985,9 @@ if (typeof window !== 'undefined') {
       umlUsecases: state.umlUsecases,
       umlLinks: state.umlLinks,
       umlRelations: state.umlRelations,
+      selectedUsecaseId: state.selectedUsecaseId,
+      activityCodes: state.activityCodes,
+      sequenceCodes: state.sequenceCodes,
     };
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });
