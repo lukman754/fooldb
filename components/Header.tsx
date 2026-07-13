@@ -22,6 +22,7 @@ import {
   PanelLeft,
   LayoutGrid,
   X,
+  RotateCcw,
 } from 'lucide-react';
 
 const SQL_TEMPLATES = [
@@ -272,6 +273,7 @@ export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
   const apiKey = useDbStore((state) => state.apiKey);
   const setApiKey = useDbStore((state) => state.setApiKey);
   const initializeStore = useDbStore((state) => state.initializeStore);
+  const clearCache = useDbStore((state) => state.clearCache);
   const [tempKey, setTempKey] = useState(apiKey);
   const [isValidating, setIsValidating] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -699,6 +701,18 @@ export default function Header({ sidebarOpen, onToggleSidebar }: HeaderProps) {
             </>
           )}
         </div>
+
+        {/* Reset / Clear Button */}
+        <button
+          onClick={() => {
+            const ok = window.confirm("Are you sure you want to reset all diagrams and clear cached inputs? This will restore default schemas.");
+            if (ok) clearCache();
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-red-400 transition-colors shrink-0"
+          title="Reset all diagrams and clear local storage cache"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+        </button>
       </div>
     </header>
   );

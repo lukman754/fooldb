@@ -86,6 +86,7 @@ interface DbState {
   removeClassMethod: (tableName: string, index: number) => void;
   updateClassMethod: (tableName: string, index: number, methodSignature: string) => void;
   setClassMethods: (methods: { [tableName: string]: string[] }) => void;
+  clearCache: () => void;
 }
 
 const DEFAULT_SQL = `-- FoolDB E-commerce Sample Schema
@@ -723,14 +724,24 @@ export const useDbStore = create<DbState>((set, get) => {
         const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
         if (cachedBuilderState) {
           const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
-            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods'
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom'
           >>;
           set(cached);
-          if (cached.visualSchema?.tables?.length) {
+          const targetMode = cached.mode || 'erd';
+          if (cached.visualSchemaActive && cached.visualSchema?.tables?.length) {
             get().triggerVisualLayout();
-          } else if (cached.sqlCode) {
-            get().triggerParse('erd', cached.sqlCode);
+          } else {
+            const code = targetMode === 'erd' || targetMode === 'lrs' || targetMode === 'transformation' || targetMode === 'class'
+              ? (cached.sqlCode || DEFAULT_SQL)
+              : targetMode === 'usecase'
+                ? (cached.usecaseCode || DEFAULT_USECASE)
+                : targetMode === 'activity'
+                  ? (cached.activityCode || DEFAULT_ACTIVITY)
+                  : (cached.sequenceCode || DEFAULT_SEQUENCE);
+            get().triggerParse(targetMode, code);
           }
+        } else {
+          get().triggerParse('erd', DEFAULT_SQL);
         }
       } catch {
         // Ignore malformed or stale browser cache.
@@ -815,6 +826,26 @@ export const useDbStore = create<DbState>((set, get) => {
     });
   },
   setClassMethods: (methods) => set({ classMethods: methods }),
+  clearCache: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(BUILDER_CACHE_KEY);
+      localStorage.removeItem('fooldb_attr_positions');
+    }
+    set({
+      mode: 'erd',
+      sqlCode: DEFAULT_SQL,
+      usecaseCode: DEFAULT_USECASE,
+      activityCode: DEFAULT_ACTIVITY,
+      sequenceCode: DEFAULT_SEQUENCE,
+      excludedTables: [],
+      visualSchema: { tables: [], relationships: [] },
+      visualSchemaActive: false,
+      classMethods: {},
+      attrPositions: {},
+      zoom: 1,
+    });
+    get().triggerParse('erd', DEFAULT_SQL);
+  },
 };
 });
 
@@ -830,6 +861,9 @@ if (typeof window !== 'undefined') {
       relNotation: state.relNotation,
       lrsKeyNotation: state.lrsKeyNotation,
       classMethods: state.classMethods,
+      mode: state.mode,
+      excludedTables: state.excludedTables,
+      zoom: state.zoom,
     };
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });
