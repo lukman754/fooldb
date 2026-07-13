@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
@@ -49,6 +49,8 @@ export default function DrawioPreview() {
   const usecaseDiagram = useDbStore((state) => state.usecaseDiagram);
   const activityDiagram = useDbStore((state) => state.activityDiagram);
   const sequenceDiagram = useDbStore((state) => state.sequenceDiagram);
+  const activityFormDatas = useDbStore((state) => state.activityFormDatas);
+  const selectedUsecaseId = useDbStore((state) => state.selectedUsecaseId);
 
   const schema = useDbStore((state) => state.schema);
   const excludedTables = useDbStore((state) => state.excludedTables);
@@ -647,7 +649,7 @@ export default function DrawioPreview() {
                         <div className="flex items-center justify-between text-[10px] text-blue-400">
                           <span className="normal-case">Current</span>
                           <span className="font-mono">
-                            {selectedAttrMeta.deg}°
+                            {selectedAttrMeta.deg}Â°
                           </span>
                         </div>
                         <input
@@ -746,7 +748,7 @@ export default function DrawioPreview() {
               {selectedEntityTable && (
                 <span className="inline-flex items-center gap-1 rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[10px] text-zinc-400 shrink-0">
                   <span>{selectedEntityTable.columns.length} cols</span>
-                  <span className="text-zinc-600">•</span>
+                  <span className="text-zinc-600">â€¢</span>
                   <span>{selectedEntityEdges.length} rels</span>
                 </span>
               )}
@@ -792,7 +794,7 @@ export default function DrawioPreview() {
                             return deg;
                           })(),
                         )}
-                        °
+                        Â°
                       </span>
                     </div>
                     <input
@@ -1074,7 +1076,7 @@ export default function DrawioPreview() {
                           >
                             <span>{rel.otherTable}</span>
                             <span aria-hidden="true" className="text-blue-500">
-                              ↗
+                              â†—
                             </span>
                           </button>
                         </span>
@@ -1222,7 +1224,7 @@ export default function DrawioPreview() {
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-[10px] font-medium">
                       <span className="text-zinc-400">Orbit Angle</span>
-                      <span className="text-blue-500 font-mono">{deg}°</span>
+                      <span className="text-blue-500 font-mono">{deg}Â°</span>
                     </div>
                     <input
                       type="range"
@@ -1462,7 +1464,7 @@ export default function DrawioPreview() {
                     };
                   };
 
-                  // ──── Pre-compute diamond positions for ALL edges ────
+                  // â”€â”€â”€â”€ Pre-compute diamond positions for ALL edges â”€â”€â”€â”€
                   const polyLen = (pts: { x: number; y: number }[]) => {
                     let t = 0;
                     for (let i = 1; i < pts.length; i++) {
@@ -1535,7 +1537,7 @@ export default function DrawioPreview() {
                     if (!moved) break;
                   }
 
-                  // Build a lookup: edgeId → diamond {x, y}
+                  // Build a lookup: edgeId â†’ diamond {x, y}
                   const diamondMap = new Map<
                     string,
                     { x: number; y: number }
@@ -1611,7 +1613,7 @@ export default function DrawioPreview() {
 
                   return (
                     <>
-                      {/* LAYER 1: Lines split at diamond — Entity -> Diamond -> Entity */}
+                      {/* LAYER 1: Lines split at diamond â€” Entity -> Diamond -> Entity */}
                       {layout.edges.map((edge) => {
                         const dm = diamondMap.get(edge.id)!;
                         const { d1, d2 } = getSplitPaths(edge.points, 0.5, dm);
@@ -1901,7 +1903,7 @@ export default function DrawioPreview() {
                         );
                       })}
 
-                      {/* LAYER 3: Diamonds + crow's foot / labels — on top */}
+                      {/* LAYER 3: Diamonds + crow's foot / labels â€” on top */}
                       {diamonds.map((d) => {
                         const { edge, rel, x: dmX, y: dmY } = d;
                         const label = rel.verb
@@ -2168,7 +2170,7 @@ export default function DrawioPreview() {
                               </>
                             )}
 
-                            {/* Diamond — connected to lines */}
+                            {/* Diamond â€” connected to lines */}
                             <g className="cursor-pointer">
                               <polygon
                                 points={diamondPts}
@@ -2491,7 +2493,7 @@ export default function DrawioPreview() {
                 </>
               )}
 
-              {/* B2. RENDER MODE: ERD ➔ LRS HYBRID TRANSFORMATION */}
+              {/* B2. RENDER MODE: ERD âž” LRS HYBRID TRANSFORMATION */}
               {mode === "transformation" && layout && (() => {
                   const polyLen = (pts: { x: number; y: number }[]) => {
                     let t = 0;
@@ -3385,134 +3387,148 @@ export default function DrawioPreview() {
                 </>
               )}
 
-              {/* D. RENDER MODE: ACTIVITY DIAGRAM */}
-              {mode === "activity" && activityDiagram && (
-                <>
-                  {/* 1. Draw flow lines */}
-                  {activityDiagram.edges.map((edge) => {
-                    let pathD = "";
-                    edge.points.forEach((pt, idx) => {
-                      pathD += `${idx === 0 ? "M" : "L"} ${pt.x} ${pt.y} `;
-                    });
+              {/* D. RENDER MODE: ACTIVITY DIAGRAM (Form-based) */}
+              {mode === "activity" && (() => {
+                const safeId = selectedUsecaseId || "_global";
+                const fd = activityFormDatas[safeId];
+                if (!fd || fd.nodes.length === 0) return (
+                  <text x={50} y={80} fill="#71717a" fontSize={14} fontFamily="inherit">
+                    No activity nodes yet â€” use the form on the left to add steps.
+                  </text>
+                );
 
-                    let labelX = 0,
-                      labelY = 0;
-                    if (edge.points.length >= 2) {
-                      const midIdx = Math.floor(edge.points.length / 2);
-                      labelX = edge.points[midIdx].x;
-                      labelY = edge.points[midIdx].y - 8;
+                const SW_W = 280;
+                const SW_HEADER = 28;
+                const LEVEL_H = 110;
+                const PAD_X = 24;
+                const PAD_Y = 48;
+
+                // Build level map via BFS from start nodes
+                const levels: Record<string, number> = {};
+                const bfsQ = fd.nodes.filter(n => n.type === 'start');
+                if (bfsQ.length === 0 && fd.nodes.length > 0) bfsQ.push(fd.nodes[0]);
+                bfsQ.forEach(q => { levels[q.id] = 0; });
+                let qi = 0;
+                while (qi < bfsQ.length) {
+                  const cur = bfsQ[qi++];
+                  const cl = levels[cur.id];
+                  const targets: string[] = [
+                    ...(cur.nextIds || []),
+                    ...(cur.branches || []).map((b: { condition: string; targetId: string }) => b.targetId).filter(Boolean)
+                  ];
+                  for (const t of targets) {
+                    if (levels[t] === undefined || levels[t] <= cl) {
+                      levels[t] = cl + 1;
+                      const tn = fd.nodes.find(n => n.id === t);
+                      if (tn) bfsQ.push(tn);
                     }
+                  }
+                }
+                fd.nodes.forEach(n => { if (levels[n.id] === undefined) levels[n.id] = 0; });
 
-                    return (
-                      <g key={edge.id}>
-                        <path
-                          d={pathD}
-                          fill="none"
-                          stroke="#2563eb"
-                          strokeWidth={1.5}
-                          markerEnd="url(#activity-arrow)"
-                        />
-                        {edge.label && (
-                          <text
-                            x={labelX}
-                            y={labelY}
-                            textAnchor="middle"
-                            fill="#2563eb"
-                            className="text-[9px] font-medium"
-                          >
-                            {edge.label}
-                          </text>
-                        )}
+                const maxLevel = Math.max(0, ...Object.values(levels));
+                const totalH = PAD_Y + (maxLevel + 1) * LEVEL_H + PAD_Y + 20;
+                const numSw = fd.swimlanes.length || 1;
+                const totalW = numSw * SW_W + PAD_X;
+
+                // Swimlane index map for X positioning
+                const swIdx: Record<string, number> = {};
+                fd.swimlanes.forEach((s: { id: string; name: string }, i: number) => { swIdx[s.id] = i; });
+
+                // Node positions
+                const nodePos: Record<string, { cx: number; cy: number; w: number; h: number }> = {};
+                for (const node of fd.nodes) {
+                  const level = levels[node.id] || 0;
+                  const swI = swIdx[node.swimlaneId] ?? 0;
+                  const swCenterX = PAD_X + swI * SW_W + SW_W / 2;
+                  const cy = SW_HEADER + PAD_Y + level * LEVEL_H;
+                  let w = 140, h = 44;
+                  if (node.type === 'start' || node.type === 'end') { w = 36; h = 36; }
+                  else if (node.type === 'decision') { w = 120; h = 64; }
+                  else if (node.type === 'fork' || node.type === 'join') { w = 160; h = 10; }
+                  nodePos[node.id] = { cx: swCenterX, cy: cy + h / 2, w, h };
+                }
+
+                // Edge rendering helper
+                const renderEdge = (srcId: string, tgtId: string, label: string, key: string) => {
+                  const s = nodePos[srcId]; const t = nodePos[tgtId];
+                  if (!s || !t) return null;
+                  const x1 = s.cx; const y1 = s.cy + s.h / 2;
+                  const x2 = t.cx; const y2 = t.cy - t.h / 2;
+                  const my = (y1 + y2) / 2;
+                  const pathD = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+                  return (
+                    <g key={key}>
+                      <path d={pathD} fill="none" stroke="#6366f1" strokeWidth={1.5} markerEnd="url(#activity-arrow)" />
+                      {label && (
+                        <text x={(x1 + x2) / 2 + 6} y={my - 4} fill="#a5b4fc" fontSize={10} fontFamily="inherit" textAnchor="middle">{label}</text>
+                      )}
+                    </g>
+                  );
+                };
+
+                return (
+                  <>
+                    {/* Container box */}
+                    <rect x={PAD_X - 4} y={0} width={totalW + 8} height={totalH} rx={10} fill="#0f172a" stroke="#334155" strokeWidth={1.5} />
+                    <text x={PAD_X + totalW / 2} y={20} textAnchor="middle" fill="#94a3b8" fontSize={13} fontFamily="inherit" fontWeight={600}>{fd.name}</text>
+
+                    {/* Swimlane columns */}
+                    {fd.swimlanes.map((sw: { id: string; name: string }, i: number) => (
+                      <g key={sw.id}>
+                        <rect x={PAD_X + i * SW_W} y={SW_HEADER} width={SW_W} height={totalH - SW_HEADER} fill={i % 2 === 0 ? '#1e293b' : '#0f172a'} stroke="#334155" strokeWidth={1} />
+                        <text x={PAD_X + i * SW_W + SW_W / 2} y={SW_HEADER + 18} textAnchor="middle" fill="#94a3b8" fontSize={11} fontFamily="inherit" fontWeight={600}>{sw.name}</text>
                       </g>
-                    );
-                  })}
+                    ))}
+                    {fd.swimlanes.length === 0 && (
+                      <rect x={PAD_X} y={SW_HEADER} width={SW_W} height={totalH - SW_HEADER} fill="#1e293b" stroke="#334155" strokeWidth={1} />
+                    )}
 
-                  {/* 2. Draw nodes */}
-                  {activityDiagram.nodes.map((node) => {
-                    if (node.type === "start") {
-                      return (
-                        <circle
-                          key={node.id}
-                          cx={node.x + 15}
-                          cy={node.y + 15}
-                          r={15}
-                          fill="#16a34a"
-                          stroke="#15803d"
-                          strokeWidth={2}
-                        />
+                    {/* Edges */}
+                    {fd.nodes.map((node: { id: string; type: string; label: string; swimlaneId: string; nextIds: string[]; branches: { condition: string; targetId: string }[] }) => [
+                      ...(node.nextIds || []).map((tid: string, i: number) => renderEdge(node.id, tid, '', `e-${node.id}-${tid}-${i}`)),
+                      ...(node.branches || []).map((b: { condition: string; targetId: string }, i: number) => renderEdge(node.id, b.targetId, b.condition, `b-${node.id}-${i}`))
+                    ])}
+
+                    {/* Nodes */}
+                    {fd.nodes.map((node: { id: string; type: string; label: string; swimlaneId: string; nextIds: string[]; branches: { condition: string; targetId: string }[] }) => {
+                      const p = nodePos[node.id];
+                      if (!p) return null;
+                      const { cx, cy, w, h } = p;
+                      const x = cx - w / 2; const y = cy - h / 2;
+
+                      if (node.type === 'start') return (
+                        <circle key={node.id} cx={cx} cy={cy} r={h / 2} fill="#22c55e" stroke="#15803d" strokeWidth={2} />
                       );
-                    }
-                    if (node.type === "end") {
-                      return (
+                      if (node.type === 'end') return (
                         <g key={node.id}>
-                          <circle
-                            cx={node.x + 15}
-                            cy={node.y + 15}
-                            r={15}
-                            fill="none"
-                            stroke="#dc2626"
-                            strokeWidth={2}
-                          />
-                          <circle
-                            cx={node.x + 15}
-                            cy={node.y + 15}
-                            r={8}
-                            fill="#dc2626"
-                          />
+                          <circle cx={cx} cy={cy} r={h / 2} fill="none" stroke="#ef4444" strokeWidth={2.5} />
+                          <circle cx={cx} cy={cy} r={h / 2 - 6} fill="#ef4444" />
                         </g>
                       );
-                    }
-                    if (node.type === "decision") {
-                      const cx = node.x + 40;
-                      const cy = node.y + 40;
-                      const pts = `${cx},${cy - 40} ${cx + 40},${cy} ${cx},${cy + 40} ${cx - 40},${cy}`;
+                      if (node.type === 'decision') {
+                        const pts = `${cx},${y} ${cx + w / 2},${cy} ${cx},${y + h} ${cx - w / 2},${cy}`;
+                        return (
+                          <g key={node.id}>
+                            <polygon points={pts} fill="#1e293b" stroke="#f59e0b" strokeWidth={1.5} />
+                            <text x={cx} y={cy + 4} textAnchor="middle" fill="#fef3c7" fontSize={10} fontFamily="inherit" fontWeight={600}>{node.label}</text>
+                          </g>
+                        );
+                      }
+                      if (node.type === 'fork' || node.type === 'join') return (
+                        <rect key={node.id} x={x} y={y} width={w} height={h} rx={2} fill="#e2e8f0" />
+                      );
                       return (
                         <g key={node.id}>
-                          <polygon
-                            points={pts}
-                            fill="#09090b"
-                            stroke="#2563eb"
-                            strokeWidth={1.5}
-                          />
-                          <text
-                            x={cx}
-                            y={cy + 3.5}
-                            textAnchor="middle"
-                            fill="#fafafa"
-                            className="text-[10px] font-medium select-none"
-                          >
-                            {node.label}
-                          </text>
+                          <rect x={x} y={y} width={w} height={h} rx={8} fill="#3b82f6" stroke="#1d4ed8" strokeWidth={1.5} />
+                          <text x={cx} y={cy + 4} textAnchor="middle" fill="#fff" fontSize={11} fontFamily="inherit" fontWeight={500}>{node.label}</text>
                         </g>
                       );
-                    }
+                    })}
+                  </>
+                );
+              })()}
 
-                    return (
-                      <g key={node.id}>
-                        <rect
-                          x={node.x}
-                          y={node.y}
-                          width={node.width}
-                          height={node.height}
-                          rx={6}
-                          fill="#18181b"
-                          stroke="#52525b"
-                          strokeWidth={1.5}
-                        />
-                        <text
-                          x={node.x + node.width / 2}
-                          y={node.y + node.height / 2 + 4}
-                          textAnchor="middle"
-                          fill="#fafafa"
-                          className="text-[11px] font-medium select-none"
-                        >
-                          {node.label}
-                        </text>
-                      </g>
-                    );
-                  })}
-                </>
-              )}
 
               {/* E. RENDER MODE: SEQUENCE DIAGRAM */}
               {mode === "sequence" && sequenceDiagram && (

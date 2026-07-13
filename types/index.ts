@@ -1,4 +1,4 @@
-﻿export interface Column {
+export interface Column {
   name: string;
   type: string;
   isNullable: boolean;
@@ -122,6 +122,26 @@ export interface ActivityEdge {
 export interface ActivityDiagram {
   nodes: ActivityNode[];
   edges: ActivityEdge[];
+}
+
+export interface ActivitySwimlane {
+  id: string;
+  name: string;
+}
+
+export interface ActivityFormNode {
+  id: string;
+  type: 'start' | 'end' | 'action' | 'decision' | 'fork' | 'join';
+  label: string;
+  swimlaneId: string;
+  nextIds: string[]; // For basic next steps or forks
+  branches: { condition: string; targetId: string }[]; // For decisions
+}
+
+export interface ActivityFormData {
+  name: string;
+  swimlanes: ActivitySwimlane[];
+  nodes: ActivityFormNode[];
 }
 
 // UML Sequence Interfaces

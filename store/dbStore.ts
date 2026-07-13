@@ -7,7 +7,8 @@ import {
   ActivityLayoutData, 
   SequenceDiagram,
   Column,
-  Table
+  Table,
+  ActivityFormData
 } from '@/types';
 import { parseSqlSchema } from '@/lib/parser/sqlParser';
 import { computeLayout, computeActivityLayout } from '@/lib/layout/elkLayout';
@@ -68,6 +69,8 @@ interface DbState {
   setSelectedUsecaseId: (id: string | null) => void;
   activityCodes: { [usecaseId: string]: string };
   sequenceCodes: { [usecaseId: string]: string };
+  activityFormDatas: { [usecaseId: string]: ActivityFormData };
+  setActivityFormData: (usecaseId: string | null, data: ActivityFormData) => void;
   excludedTables: string[];
   apiKey: string;
   isAiLoading: boolean;
@@ -331,6 +334,16 @@ export const useDbStore = create<DbState>((set, get) => {
     },
     activityCodes: {},
     sequenceCodes: {},
+    activityFormDatas: {},
+    setActivityFormData: (usecaseId, data) => set(state => {
+      const safeId = usecaseId || '_global';
+      return {
+        activityFormDatas: {
+          ...state.activityFormDatas,
+          [safeId]: data
+        }
+      };
+    }),
     excludedTables: [],
   apiKey: '',
   isAiLoading: false,
@@ -868,7 +881,7 @@ export const useDbStore = create<DbState>((set, get) => {
         const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
         if (cachedBuilderState) {
           const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
-            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations' | 'selectedUsecaseId' | 'activityCodes' | 'sequenceCodes'
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations' | 'selectedUsecaseId' | 'activityCodes' | 'sequenceCodes' | 'activityFormDatas'
           >>;
           set({
             ...cached,
@@ -988,6 +1001,7 @@ export const useDbStore = create<DbState>((set, get) => {
       selectedUsecaseId: null,
       activityCodes: {},
       sequenceCodes: {},
+      activityFormDatas: {},
       excludedTables: [],
       visualSchema: { tables: [], relationships: [] },
       visualSchemaActive: false,
@@ -1027,6 +1041,7 @@ if (typeof window !== 'undefined') {
       selectedUsecaseId: state.selectedUsecaseId,
       activityCodes: state.activityCodes,
       sequenceCodes: state.sequenceCodes,
+      activityFormDatas: state.activityFormDatas,
     };
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });
