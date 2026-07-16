@@ -214,7 +214,25 @@ export default function DrawioPreview() {
       hasDiagramData = true;
     }
   } else if (mode === "activity") {
-    if (activityDiagram) {
+    const safeId = selectedUsecaseId || "_global";
+    const fd = activityFormDatas[safeId];
+    if (fd && fd.nodes.length > 0) {
+      const SW_W = 280;
+      const LEVEL_H = 90;
+      const PAD_X = 24;
+      const PAD_Y = 48;
+      const SW_HEADER = 28;
+      const swNodes: Record<string, number> = {};
+      fd.nodes.forEach((n: { swimlaneId: string }) => {
+        const key = n.swimlaneId || '_default';
+        swNodes[key] = (swNodes[key] || 0) + 1;
+      });
+      const maxRow = Math.max(0, ...Object.values(swNodes).map(v => v - 1));
+      const numSw = fd.swimlanes.length || 1;
+      canvasWidth = numSw * SW_W + PAD_X * 2;
+      canvasHeight = SW_HEADER + PAD_Y + (maxRow + 1) * LEVEL_H + PAD_Y + 40;
+      hasDiagramData = true;
+    } else if (activityDiagram) {
       canvasWidth = activityDiagram.width;
       canvasHeight = activityDiagram.height;
       hasDiagramData = true;
@@ -3398,72 +3416,77 @@ export default function DrawioPreview() {
                 );
 
                 const SW_W = 280;
-                const SW_HEADER = 28;
-                const LEVEL_H = 110;
+                const LEVEL_H = 90;
                 const PAD_X = 24;
                 const PAD_Y = 48;
+                const SW_HEADER = 28;
 
-                // Build level map via BFS — use visited Set to guarantee each node is processed exactly once
-                const levels: Record<string, number> = {};
-                const visited = new Set<string>();
-                const startNodes = fd.nodes.filter((n: { id: string; type: string }) => n.type === 'start');
-                const bfsQ: typeof fd.nodes = startNodes.length > 0 ? [...startNodes] : fd.nodes.slice(0, 1);
-                bfsQ.forEach((q: { id: string }) => { levels[q.id] = 0; visited.add(q.id); });
-                let qi = 0;
-                while (qi < bfsQ.length && qi < 10000) {  // safety cap
-                  const cur = bfsQ[qi++];
-                  const cl = levels[cur.id] ?? 0;
-                  const targets: string[] = [
-                    ...(cur.nextIds || []),
-                    ...(cur.branches || []).map((b: { condition: string; targetId: string }) => b.targetId).filter(Boolean)
-                  ];
-                  for (const t of targets) {
-                    if (t && !visited.has(t)) {
-                      visited.add(t);
-                      levels[t] = cl + 1;
-                      const tn = fd.nodes.find((n: { id: string }) => n.id === t);
-                      if (tn) bfsQ.push(tn);
-                    }
-                  }
-                }
-                fd.nodes.forEach((n: { id: string }) => { if (levels[n.id] === undefined) levels[n.id] = 0; });
-
-                const maxLevel = Math.max(0, ...Object.values(levels));
-                const totalH = PAD_Y + (maxLevel + 1) * LEVEL_H + PAD_Y + 20;
-                const numSw = fd.swimlanes.length || 1;
-                const totalW = numSw * SW_W + PAD_X;
-
-                // Swimlane index map for X positioning
+                // Swimlane index map
                 const swIdx: Record<string, number> = {};
                 fd.swimlanes.forEach((s: { id: string; name: string }, i: number) => { swIdx[s.id] = i; });
 
-                // Node positions
-                const nodePos: Record<string, { cx: number; cy: number; w: number; h: number }> = {};
-                for (const node of fd.nodes) {
-                  const level = levels[node.id] || 0;
-                  const swI = swIdx[node.swimlaneId] ?? 0;
-                  const swCenterX = PAD_X + swI * SW_W + SW_W / 2;
-                  const cy = SW_HEADER + PAD_Y + level * LEVEL_H;
-                  let w = 140, h = 44;
-                  if (node.type === 'start' || node.type === 'end') { w = 36; h = 36; }
-                  else if (node.type === 'decision') { w = 120; h = 64; }
-                  else if (node.type === 'fork' || node.type === 'join') { w = 160; h = 10; }
-                  nodePos[node.id] = { cx: swCenterX, cy: cy + h / 2, w, h };
+                // Group nodes by swimlane, preserve insertion order (BFS already does this)
+                const swNodes: Record<string, typeof fd.nodes> = {};
+                fd.swimlanes.forEach((s: { id: string }) => { swNodes[s.id] = []; });
+                if (fd.swimlanes.length === 0) swNodes['_default'] = [];
+                fd.nodes.forEach((n: { swimlaneId: string }) => {
+                  const key = n.swimlaneId || '_default';
+                  if (!swNodes[key]) swNodes[key] = [];
+                  swNodes[key].push(n);
+                });
+
+                // Compute per-swimlane max row count for cross-swimlane offset
+                const swRowCount: Record<string, number> = {};
+                for (const [swId, nodes] of Object.entries(swNodes)) {
+                  swRowCount[swId] = nodes.length;
                 }
 
-                // Edge rendering helper
+                // Assign row positions per swimlane (insertion order = row index)
+                const nodePos: Record<string, { cx: number; cy: number; w: number; h: number }> = {};
+                const nodeRow: Record<string, number> = {};
+
+                for (const [swId, nodes] of Object.entries(swNodes)) {
+                  const swI = swIdx[swId] ?? 0;
+                  const swCenterX = PAD_X + swI * SW_W + SW_W / 2;
+                  nodes.forEach((node: { id: string; type: string }, rowIdx: number) => {
+                    let w = 140, h = 44;
+                    if (node.type === 'start' || node.type === 'end') { w = 36; h = 36; }
+                    else if (node.type === 'decision') { w = 120; h = 64; }
+                    else if (node.type === 'fork' || node.type === 'join') { w = 160; h = 10; }
+                    const cy = SW_HEADER + PAD_Y + rowIdx * LEVEL_H + h / 2;
+                    nodePos[node.id] = { cx: swCenterX, cy, w, h };
+                    nodeRow[node.id] = rowIdx;
+                  });
+                }
+
+                // Compute total canvas size
+                const maxRow = Math.max(0, ...fd.nodes.map((n: { id: string }) => nodeRow[n.id] ?? 0));
+                const numSw = fd.swimlanes.length || 1;
+                const totalW = numSw * SW_W + PAD_X;
+                const totalH = SW_HEADER + PAD_Y + (maxRow + 1) * LEVEL_H + PAD_Y + 20;
+
+                // Edge rendering helper — shortest orthogonal path
                 const renderEdge = (srcId: string, tgtId: string, label: string, key: string) => {
                   const s = nodePos[srcId]; const t = nodePos[tgtId];
                   if (!s || !t) return null;
                   const x1 = s.cx; const y1 = s.cy + s.h / 2;
                   const x2 = t.cx; const y2 = t.cy - t.h / 2;
-                  const my = (y1 + y2) / 2;
-                  const pathD = `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+
+                  let pathD: string;
+                  if (Math.abs(x1 - x2) < 2) {
+                    // Same column — straight line
+                    pathD = `M ${x1} ${y1} L ${x2} ${y2}`;
+                  } else {
+                    // Different columns — simple L-shape: down, across, down
+                    const midY = (y1 + y2) / 2;
+                    pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
+                  }
+
                   return (
                     <g key={key}>
                       <path d={pathD} fill="none" stroke="#6366f1" strokeWidth={1.5} markerEnd="url(#activity-arrow)" />
                       {label && (
-                        <text x={(x1 + x2) / 2 + 6} y={my - 4} fill="#a5b4fc" fontSize={10} fontFamily="inherit" textAnchor="middle">{label}</text>
+                        <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} fill="#a5b4fc" fontSize={10} fontFamily="inherit" textAnchor="middle">{label}</text>
                       )}
                     </g>
                   );
