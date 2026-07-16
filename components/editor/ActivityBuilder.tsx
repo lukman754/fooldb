@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useDbStore } from "@/store/dbStore";
-import { ActivityFormData, ActivityFormNode, ActivitySwimlane } from "@/types";
-import { Plus, Trash2, ArrowRight, GitMerge, MoreVertical, X } from "lucide-react";
+import { ActivityFormData, ActivityFormNode } from "@/types";
+import { Plus, Trash2, ArrowRight, GitMerge, X } from "lucide-react";
 
 export default function ActivityBuilder() {
   const selectedUsecaseId = useDbStore((state) => state.selectedUsecaseId);
@@ -191,7 +191,7 @@ export default function ActivityBuilder() {
                   
                   <select
                     value={node.type}
-                    onChange={(e) => updateNode(node.id, { type: e.target.value as any })}
+                    onChange={(e) => updateNode(node.id, { type: e.target.value as ActivityFormNode['type'] })}
                     className="bg-zinc-900 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200 outline-none focus:border-blue-600"
                   >
                     <option value="start">Start</option>

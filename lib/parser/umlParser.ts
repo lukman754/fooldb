@@ -54,7 +54,7 @@ export function parseUseCase(code: string): UseCaseDiagram {
         const name = cleanQuotes(namePart);
         const id = name.toLowerCase().replace(/\s+/g, '_');
         if (!actors.some(a => a.id === id)) {
-          actors.push({ id, name, side } as any);
+          actors.push({ id, name, side });
         }
       }
       continue;
@@ -109,7 +109,7 @@ export function parseUseCase(code: string): UseCaseDiagram {
           from: fromId,
           to: toId,
           label
-        } as any);
+        });
       }
     }
   }

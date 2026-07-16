@@ -46,7 +46,7 @@ function buildDiagram(actors: UmlActor[], usecases: UmlUsecase[], links: UmlLink
 }
 
 function generateUseCaseDsl(actors: UmlActor[], usecases: UmlUsecase[], links: UmlLink[], relations: UmlRelation[]): string {
-  let lines: string[] = [];
+  const lines: string[] = [];
   actors.forEach(a => {
     lines.push(`actor "${a.name}" ${a.side}`);
   });

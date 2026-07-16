@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { createPortal } from "react-dom";
 import { useDbStore } from "@/store/dbStore";
 import { Column } from "@/types";
 import { visualSchemaToSql } from "@/lib/parser/visualToSql";

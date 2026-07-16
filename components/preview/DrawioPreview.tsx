@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useDbStore } from "@/store/dbStore";
 import { getRelationshipLabel } from "@/lib/xml/drawioGenerator";
@@ -61,13 +61,11 @@ export default function DrawioPreview() {
   const [showTableFilter, setShowTableFilter] = useState(false);
 
   const error = useDbStore((state) => state.error);
-  const triggerParse = useDbStore((state) => state.triggerParse);
   const isAiLoading = useDbStore((state) => state.isAiLoading);
   const triggerAiLabeling = useDbStore((state) => state.triggerAiLabeling);
 
   const zoom = useDbStore((state) => state.zoom);
   const setZoom = useDbStore((state) => state.setZoom);
-  const resetZoom = useDbStore((state) => state.resetZoom);
   const fitTrigger = useDbStore((state) => state.fitTrigger);
 
   // Zooming & Panning refs and states
@@ -462,15 +460,7 @@ export default function DrawioPreview() {
     };
   }, [setZoom, setPan, zoom, pan]);
 
-  // Zoom control buttons
-  const handleZoomIn = () => setZoom((z) => z + 0.1);
-  const handleZoomOut = () => setZoom((z) => z - 0.1);
-  const handleReset = () => {
-    setPan({ x: 0, y: 0 });
-    resetZoom();
-  };
-
-  const handleFit = () => {
+  const handleFit = useCallback(() => {
     if (!containerRef.current || !hasDiagramData) return;
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
@@ -483,13 +473,12 @@ export default function DrawioPreview() {
       x: (containerWidth - canvasWidth * fitScale) / 2,
       y: (containerHeight - canvasHeight * fitScale) / 2,
     });
-  };
+  }, [hasDiagramData, canvasWidth, canvasHeight, setZoom, setPan]);
 
   // React to fit trigger from Footer
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (fitTrigger > 0) handleFit();
-  }, [fitTrigger]);
+  }, [fitTrigger, handleFit]);
 
   return (
     <div className="relative flex h-full w-full flex-col bg-zinc-950 select-none">
@@ -3429,7 +3418,7 @@ export default function DrawioPreview() {
                 const swNodes: Record<string, typeof fd.nodes> = {};
                 fd.swimlanes.forEach((s: { id: string }) => { swNodes[s.id] = []; });
                 if (fd.swimlanes.length === 0) swNodes['_default'] = [];
-                fd.nodes.forEach((n: { swimlaneId: string }) => {
+                fd.nodes.forEach((n) => {
                   const key = n.swimlaneId || '_default';
                   if (!swNodes[key]) swNodes[key] = [];
                   swNodes[key].push(n);

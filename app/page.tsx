@@ -13,7 +13,6 @@ import DrawioPreview from '@/components/preview/DrawioPreview';
 import { useDbStore } from '@/store/dbStore';
 
 export default function Home() {
-  const triggerParse = useDbStore((state) => state.triggerParse);
   const mode = useDbStore((state) => state.mode);
   const visualSchemaActive = useDbStore((state) => state.visualSchemaActive);
 
