@@ -5,14 +5,14 @@ import { NextResponse } from "next/server";
 export async function GET() {
   const session = await auth();
 
-  // @ts-expect-error
+  // @ts-expect-error: NextAuth Session type lacks accessToken
   if (!session || !session.accessToken) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
     const oauth2Client = new google.auth.OAuth2();
-    // @ts-expect-error
+    // @ts-expect-error: NextAuth Session type lacks accessToken
     oauth2Client.setCredentials({ access_token: session.accessToken });
 
     const drive = google.drive({ version: "v3", auth: oauth2Client });

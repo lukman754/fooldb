@@ -24,7 +24,7 @@ export interface DriveMenuRef {
 
 // Helper: build a multipart/related body for Drive upload
 function buildMultipartBody(filename: string, content: string, boundary: string, projectId?: string | null) {
-  const metadataObj: any = { name: filename, mimeType: "text/plain" };
+  const metadataObj: { name: string; mimeType: string; parents?: string[] } = { name: filename, mimeType: "text/plain" };
   if (projectId) {
     metadataObj.parents = [projectId];
   }
@@ -42,7 +42,7 @@ function buildMultipartBody(filename: string, content: string, boundary: string,
 
 export const DriveMenu = forwardRef<DriveMenuRef, DriveMenuProps>(({ getCurrentXml, onLoadXml, fileName = "diagram.xml", projectId, fileId }, ref) => {
   const { data: session, status } = useSession();
-  // @ts-expect-error
+  // @ts-expect-error: NextAuth Session lacks accessToken
   const accessToken: string | undefined = session?.accessToken;
 
   const [isSaving, setIsSaving] = useState(false);

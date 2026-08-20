@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 export async function POST(req: Request) {
   const session = await auth();
 
-  // @ts-expect-error
+  // @ts-expect-error: NextAuth Session lacks accessToken
   const accessToken = session?.accessToken as string | undefined;
 
   if (!session || !accessToken) {

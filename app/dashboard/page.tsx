@@ -406,10 +406,10 @@ export default function DashboardPage() {
             </div>
 
             {selectedProject ? (
-              // @ts-expect-error
+              // @ts-expect-error: NextAuth Session lacks accessToken
               <ProjectDiagrams accessToken={session.accessToken as string} project={selectedProject} onBack={() => setSelectedProject(null)} />
             ) : (
-              // @ts-expect-error
+              // @ts-expect-error: NextAuth Session lacks accessToken
               <ProjectList accessToken={session.accessToken as string} onSelectProject={setSelectedProject} />
             )}
           </div>

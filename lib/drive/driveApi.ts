@@ -52,7 +52,7 @@ export class DriveApi {
 
   // Create a folder inside a specific parent (or root if not provided)
   private async createFolder(name: string, parentId?: string): Promise<string> {
-    const metadata: any = {
+    const metadata: { name: string; mimeType: string; parents?: string[] } = {
       name,
       mimeType: FOLDER_MIME_TYPE,
     };
