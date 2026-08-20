@@ -116,8 +116,8 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
             {/* Text Content */}
             <div className="flex flex-col gap-8 z-10">
-              <h1 className="font-display text-[2.5rem] leading-[1.1] md:text-[3.5rem] text-on-surface tracking-tight">
-                Generasi Diagram <br />
+              <h1 className="font-display font-bold text-[2.5rem] leading-[1.1] md:text-[4rem] text-on-surface tracking-tight">
+                Generate Diagram <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-primary-container">
                   Lebih Cepat
                 </span>
