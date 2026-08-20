@@ -3,10 +3,12 @@
 import { useSession, signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useState } from "react";
 
 export default function Home() {
   const { data: session } = useSession();
   const router = useRouter();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const handleDashboard = () => {
     if (session) {
@@ -62,12 +64,53 @@ export default function Home() {
 
         {/* Mobile Nav Fallback (Simple) */}
         <div className="flex justify-between items-center px-margin-mobile py-4 md:hidden">
-          <div className="font-headline-md text-headline-md font-bold text-on-surface tracking-tighter">FooIDB</div>
-          <button className="material-symbols-outlined">menu</button>
+          <div className="font-headline-md text-headline-md font-bold text-on-surface tracking-tighter flex items-center gap-2">
+            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
+              database
+            </span>
+            FooIDB
+          </div>
+          <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="material-symbols-outlined text-on-surface">
+            {isMobileMenuOpen ? "close" : "menu"}
+          </button>
         </div>
+
+        {/* Mobile Menu Dropdown */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden absolute top-full left-0 w-full bg-surface/95 backdrop-blur-3xl border-b border-white/10 shadow-lg px-margin-mobile py-6 flex flex-col gap-6 animate-in slide-in-from-top-2">
+            <ul className="flex flex-col gap-4">
+              <li>
+                <button onClick={() => { setIsMobileMenuOpen(false); handleDashboard(); }} className="text-on-surface/80 font-medium hover:text-primary transition-all text-lg">
+                  Dashboard
+                </button>
+              </li>
+              <li>
+                <Link href="/editor" onClick={() => setIsMobileMenuOpen(false)} className="text-on-surface/80 font-medium hover:text-primary transition-all text-lg">
+                  Editor
+                </Link>
+              </li>
+            </ul>
+            <div className="flex flex-col gap-3">
+              {session ? (
+                <button onClick={() => { setIsMobileMenuOpen(false); router.push("/dashboard"); }} className="bg-primary text-on-primary font-label-md px-6 py-3 rounded-lg text-center font-semibold">
+                  Open Dashboard
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => signIn("google")} className="border border-white/20 text-on-surface font-label-md px-6 py-3 rounded-lg font-semibold text-center">
+                    Log in
+                  </button>
+                  <button onClick={() => signIn("google", { callbackUrl: "/dashboard" })} className="bg-primary text-on-primary font-label-md px-6 py-3 rounded-lg font-semibold text-center">
+                    Sign up
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
       </nav>
 
-      <main className="pt-[120px]">
+      <main className="pt-[100px] overflow-x-hidden">
         {/* Hero Section */}
         <section className="relative min-h-[80vh] flex flex-col justify-center items-center px-margin-mobile md:px-margin-desktop py-section-padding max-w-container-max mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
