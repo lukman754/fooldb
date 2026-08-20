@@ -47,9 +47,6 @@ export default function DrawioPreview() {
   // Diagram states
   const layout = useDbStore((state) => state.layout); // used for ERD & LRS
   const usecaseDiagram = useDbStore((state) => state.usecaseDiagram);
-  const activityDiagram = useDbStore((state) => state.activityDiagram);
-  const sequenceDiagram = useDbStore((state) => state.sequenceDiagram);
-  const activityFormDatas = useDbStore((state) => state.activityFormDatas);
   const selectedUsecaseId = useDbStore((state) => state.selectedUsecaseId);
 
   const schema = useDbStore((state) => state.schema);
@@ -211,37 +208,8 @@ export default function DrawioPreview() {
       canvasHeight = Math.max(400, 60 + systemsCount * (systemHeight + 50) + 50);
       hasDiagramData = true;
     }
-  } else if (mode === "activity") {
-    const safeId = selectedUsecaseId || "_global";
-    const fd = activityFormDatas[safeId];
-    if (fd && fd.nodes.length > 0) {
-      const SW_W = 280;
-      const LEVEL_H = 90;
-      const PAD_X = 24;
-      const PAD_Y = 48;
-      const SW_HEADER = 28;
-      const swNodes: Record<string, number> = {};
-      fd.nodes.forEach((n: { swimlaneId: string }) => {
-        const key = n.swimlaneId || '_default';
-        swNodes[key] = (swNodes[key] || 0) + 1;
-      });
-      const maxRow = Math.max(0, ...Object.values(swNodes).map(v => v - 1));
-      const numSw = fd.swimlanes.length || 1;
-      canvasWidth = numSw * SW_W + PAD_X * 2;
-      canvasHeight = SW_HEADER + PAD_Y + (maxRow + 1) * LEVEL_H + PAD_Y + 40;
-      hasDiagramData = true;
-    } else if (activityDiagram) {
-      canvasWidth = activityDiagram.width;
-      canvasHeight = activityDiagram.height;
-      hasDiagramData = true;
-    }
-  } else if (mode === "sequence") {
-    if (sequenceDiagram) {
-      canvasWidth = 100 + sequenceDiagram.participants.length * 220 + 80;
-      canvasHeight = Math.max(300, sequenceDiagram.messages.length * 60 + 180);
-      hasDiagramData = true;
-    }
   }
+
 
   // Auto-fit view coordinates and scale to container bounds when the active layout/mode changes
   useEffect(() => {
@@ -273,8 +241,6 @@ export default function DrawioPreview() {
   }, [
     layout,
     usecaseDiagram,
-    activityDiagram,
-    sequenceDiagram,
     mode,
     hasDiagramData,
     canvasWidth,
@@ -3394,244 +3360,7 @@ export default function DrawioPreview() {
                 </>
               )}
 
-              {/* D. RENDER MODE: ACTIVITY DIAGRAM (Form-based) */}
-              {mode === "activity" && (() => {
-                const safeId = selectedUsecaseId || "_global";
-                const fd = activityFormDatas[safeId];
-                if (!fd || fd.nodes.length === 0) return (
-                  <text x={50} y={80} fill="#71717a" fontSize={14} fontFamily="inherit">
-                    No activity nodes yet â€” use the form on the left to add steps.
-                  </text>
-                );
 
-                const SW_W = 280;
-                const LEVEL_H = 90;
-                const PAD_X = 24;
-                const PAD_Y = 48;
-                const SW_HEADER = 28;
-
-                // Swimlane index map
-                const swIdx: Record<string, number> = {};
-                fd.swimlanes.forEach((s: { id: string; name: string }, i: number) => { swIdx[s.id] = i; });
-
-                // Group nodes by swimlane, preserve insertion order (BFS already does this)
-                const swNodes: Record<string, typeof fd.nodes> = {};
-                fd.swimlanes.forEach((s: { id: string }) => { swNodes[s.id] = []; });
-                if (fd.swimlanes.length === 0) swNodes['_default'] = [];
-                fd.nodes.forEach((n) => {
-                  const key = n.swimlaneId || '_default';
-                  if (!swNodes[key]) swNodes[key] = [];
-                  swNodes[key].push(n);
-                });
-
-                // Compute per-swimlane max row count for cross-swimlane offset
-                const swRowCount: Record<string, number> = {};
-                for (const [swId, nodes] of Object.entries(swNodes)) {
-                  swRowCount[swId] = nodes.length;
-                }
-
-                // Assign row positions per swimlane (insertion order = row index)
-                const nodePos: Record<string, { cx: number; cy: number; w: number; h: number }> = {};
-                const nodeRow: Record<string, number> = {};
-
-                for (const [swId, nodes] of Object.entries(swNodes)) {
-                  const swI = swIdx[swId] ?? 0;
-                  const swCenterX = PAD_X + swI * SW_W + SW_W / 2;
-                  nodes.forEach((node: { id: string; type: string }, rowIdx: number) => {
-                    let w = 140, h = 44;
-                    if (node.type === 'start' || node.type === 'end') { w = 36; h = 36; }
-                    else if (node.type === 'decision') { w = 120; h = 64; }
-                    else if (node.type === 'fork' || node.type === 'join') { w = 160; h = 10; }
-                    const cy = SW_HEADER + PAD_Y + rowIdx * LEVEL_H + h / 2;
-                    nodePos[node.id] = { cx: swCenterX, cy, w, h };
-                    nodeRow[node.id] = rowIdx;
-                  });
-                }
-
-                // Compute total canvas size
-                const maxRow = Math.max(0, ...fd.nodes.map((n: { id: string }) => nodeRow[n.id] ?? 0));
-                const numSw = fd.swimlanes.length || 1;
-                const totalW = numSw * SW_W + PAD_X;
-                const totalH = SW_HEADER + PAD_Y + (maxRow + 1) * LEVEL_H + PAD_Y + 20;
-
-                // Edge rendering helper — shortest orthogonal path
-                const renderEdge = (srcId: string, tgtId: string, label: string, key: string) => {
-                  const s = nodePos[srcId]; const t = nodePos[tgtId];
-                  if (!s || !t) return null;
-                  const x1 = s.cx; const y1 = s.cy + s.h / 2;
-                  const x2 = t.cx; const y2 = t.cy - t.h / 2;
-
-                  let pathD: string;
-                  if (Math.abs(x1 - x2) < 2) {
-                    // Same column — straight line
-                    pathD = `M ${x1} ${y1} L ${x2} ${y2}`;
-                  } else {
-                    // Different columns — simple L-shape: down, across, down
-                    const midY = (y1 + y2) / 2;
-                    pathD = `M ${x1} ${y1} L ${x1} ${midY} L ${x2} ${midY} L ${x2} ${y2}`;
-                  }
-
-                  return (
-                    <g key={key}>
-                      <path d={pathD} fill="none" stroke="#6366f1" strokeWidth={1.5} markerEnd="url(#activity-arrow)" />
-                      {label && (
-                        <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} fill="#a5b4fc" fontSize={10} fontFamily="inherit" textAnchor="middle">{label}</text>
-                      )}
-                    </g>
-                  );
-                };
-
-                return (
-                  <>
-                    {/* Container box */}
-                    <rect x={PAD_X - 4} y={0} width={totalW + 8} height={totalH} rx={10} fill="#0f172a" stroke="#334155" strokeWidth={1.5} />
-                    <text x={PAD_X + totalW / 2} y={20} textAnchor="middle" fill="#94a3b8" fontSize={13} fontFamily="inherit" fontWeight={600}>{fd.name}</text>
-
-                    {/* Swimlane columns */}
-                    {fd.swimlanes.map((sw: { id: string; name: string }, i: number) => (
-                      <g key={sw.id}>
-                        <rect x={PAD_X + i * SW_W} y={SW_HEADER} width={SW_W} height={totalH - SW_HEADER} fill={i % 2 === 0 ? '#1e293b' : '#0f172a'} stroke="#334155" strokeWidth={1} />
-                        <text x={PAD_X + i * SW_W + SW_W / 2} y={SW_HEADER + 18} textAnchor="middle" fill="#94a3b8" fontSize={11} fontFamily="inherit" fontWeight={600}>{sw.name}</text>
-                      </g>
-                    ))}
-                    {fd.swimlanes.length === 0 && (
-                      <rect x={PAD_X} y={SW_HEADER} width={SW_W} height={totalH - SW_HEADER} fill="#1e293b" stroke="#334155" strokeWidth={1} />
-                    )}
-
-                    {/* Edges */}
-                    {fd.nodes.map((node: { id: string; type: string; label: string; swimlaneId: string; nextIds: string[]; branches: { condition: string; targetId: string }[] }) => [
-                      ...(node.nextIds || []).map((tid: string, i: number) => renderEdge(node.id, tid, '', `e-${node.id}-${tid}-${i}`)),
-                      ...(node.branches || []).map((b: { condition: string; targetId: string }, i: number) => renderEdge(node.id, b.targetId, b.condition, `b-${node.id}-${i}`))
-                    ])}
-
-                    {/* Nodes */}
-                    {fd.nodes.map((node: { id: string; type: string; label: string; swimlaneId: string; nextIds: string[]; branches: { condition: string; targetId: string }[] }) => {
-                      const p = nodePos[node.id];
-                      if (!p) return null;
-                      const { cx, cy, w, h } = p;
-                      const x = cx - w / 2; const y = cy - h / 2;
-
-                      if (node.type === 'start') return (
-                        <circle key={node.id} cx={cx} cy={cy} r={h / 2} fill="#22c55e" stroke="#15803d" strokeWidth={2} />
-                      );
-                      if (node.type === 'end') return (
-                        <g key={node.id}>
-                          <circle cx={cx} cy={cy} r={h / 2} fill="none" stroke="#ef4444" strokeWidth={2.5} />
-                          <circle cx={cx} cy={cy} r={h / 2 - 6} fill="#ef4444" />
-                        </g>
-                      );
-                      if (node.type === 'decision') {
-                        const pts = `${cx},${y} ${cx + w / 2},${cy} ${cx},${y + h} ${cx - w / 2},${cy}`;
-                        return (
-                          <g key={node.id}>
-                            <polygon points={pts} fill="#1e293b" stroke="#f59e0b" strokeWidth={1.5} />
-                            <text x={cx} y={cy + 4} textAnchor="middle" fill="#fef3c7" fontSize={10} fontFamily="inherit" fontWeight={600}>{node.label}</text>
-                          </g>
-                        );
-                      }
-                      if (node.type === 'fork' || node.type === 'join') return (
-                        <rect key={node.id} x={x} y={y} width={w} height={h} rx={2} fill="#e2e8f0" />
-                      );
-                      return (
-                        <g key={node.id}>
-                          <rect x={x} y={y} width={w} height={h} rx={8} fill="#3b82f6" stroke="#1d4ed8" strokeWidth={1.5} />
-                          <text x={cx} y={cy + 4} textAnchor="middle" fill="#fff" fontSize={11} fontFamily="inherit" fontWeight={500}>{node.label}</text>
-                        </g>
-                      );
-                    })}
-                  </>
-                );
-              })()}
-
-
-              {/* E. RENDER MODE: SEQUENCE DIAGRAM */}
-              {mode === "sequence" && sequenceDiagram && (
-                <>
-                  {/* 1. Draw lifelines */}
-                  {sequenceDiagram.participants.map((part, idx) => {
-                    const px = 100 + idx * 220;
-                    const cx = px + 50;
-                    const sy = 60;
-                    const lifelineHeight = Math.max(
-                      300,
-                      sequenceDiagram.messages.length * 60 + 100,
-                    );
-
-                    return (
-                      <g key={part.id}>
-                        <line
-                          x1={cx}
-                          y1={sy + 40}
-                          x2={cx}
-                          y2={sy + lifelineHeight}
-                          stroke="#52525b"
-                          strokeWidth={1.5}
-                          strokeDasharray="6,6"
-                        />
-                        <rect
-                          x={px}
-                          y={sy}
-                          width={100}
-                          height={40}
-                          rx={6}
-                          fill="#18181b"
-                          stroke="#52525b"
-                          strokeWidth={1.5}
-                        />
-                        <text
-                          x={cx}
-                          y={sy + 24}
-                          textAnchor="middle"
-                          fill="#fafafa"
-                          className="text-xs font-medium font-mono select-none"
-                        >
-                          {part.name}
-                        </text>
-                      </g>
-                    );
-                  })}
-
-                  {/* 2. Draw messages arrows */}
-                  {sequenceDiagram.messages.map((msg, idx) => {
-                    const fromIdx = sequenceDiagram.participants.findIndex(
-                      (p) => p.id === msg.from,
-                    );
-                    const toIdx = sequenceDiagram.participants.findIndex(
-                      (p) => p.id === msg.to,
-                    );
-
-                    if (fromIdx !== -1 && toIdx !== -1) {
-                      const fromCenterX = 100 + fromIdx * 220 + 50;
-                      const toCenterX = 100 + toIdx * 220 + 50;
-                      const messageY = 60 + 80 + idx * 60;
-
-                      return (
-                        <g key={msg.id}>
-                          <line
-                            x1={fromCenterX}
-                            y1={messageY}
-                            x2={toCenterX}
-                            y2={messageY}
-                            stroke="#2563eb"
-                            strokeWidth={1.5}
-                            markerEnd="url(#sequence-arrow)"
-                          />
-                          <text
-                            x={(fromCenterX + toCenterX) / 2}
-                            y={messageY - 6}
-                            textAnchor="middle"
-                            fill="#a1a1aa"
-                            className="text-[10px] font-medium select-none"
-                          >
-                            {msg.label}
-                          </text>
-                        </g>
-                      );
-                    }
-                    return null;
-                  })}
-                </>
-              )}
             </svg>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-zinc-450">

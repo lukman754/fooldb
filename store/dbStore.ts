@@ -3,20 +3,16 @@ import {
   DatabaseSchema, 
   LayoutData, 
   UseCaseDiagram, 
-  ActivityDiagram, 
-  ActivityLayoutData, 
-  SequenceDiagram,
   Column,
-  Table,
-  ActivityFormData
+  Table
 } from '@/types';
 import { parseSqlSchema } from '@/lib/parser/sqlParser';
-import { computeLayout, computeActivityLayout } from '@/lib/layout/elkLayout';
-import { parseUseCase, parseActivity, parseSequence } from '@/lib/parser/umlParser';
+import { computeLayout } from '@/lib/layout/elkLayout';
+import { parseUseCase } from '@/lib/parser/umlParser';
 import { generateRelationshipVerbs } from '@/lib/ai/geminiClient';
 import { visualSchemaToSql } from '@/lib/parser/visualToSql';
 
-export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'activity' | 'sequence' | 'visual' | 'uml' | 'class';
+export type AppMode = 'erd' | 'lrs' | 'transformation' | 'usecase' | 'visual' | 'uml' | 'class';
 
 // Debounce timer for visual layout — prevents spamming ELK.js on rapid store updates
 let visualLayoutTimer: ReturnType<typeof setTimeout> | null = null;
@@ -63,14 +59,8 @@ interface DbState {
   mode: AppMode;
   sqlCode: string;
   usecaseCode: string;
-  activityCode: string;
-  sequenceCode: string;
   selectedUsecaseId: string | null;
   setSelectedUsecaseId: (id: string | null) => void;
-  activityCodes: { [usecaseId: string]: string };
-  sequenceCodes: { [usecaseId: string]: string };
-  activityFormDatas: { [usecaseId: string]: ActivityFormData };
-  setActivityFormData: (usecaseId: string | null, data: ActivityFormData) => void;
   excludedTables: string[];
   apiKey: string;
   isAiLoading: boolean;
@@ -79,8 +69,6 @@ interface DbState {
   schema: DatabaseSchema;
   layout: LayoutData | null; // ERD & LRS layouts
   usecaseDiagram: UseCaseDiagram | null;
-  activityDiagram: ActivityLayoutData | null;
-  sequenceDiagram: SequenceDiagram | null;
   
   renderTime: number;
   zoom: number;
@@ -111,7 +99,7 @@ interface DbState {
   clearExcludedTables: () => void;
   setApiKey: (key: string) => void;
   triggerAiLabeling: () => Promise<void>;
-  initializeStore: () => void;
+  initializeStore: (currentProjectId?: string | null) => void;
   attrPositions: { [key: string]: { angle: number; radius: number } };
   setAttrPosition: (key: string, pos: { angle: number; radius: number }) => void;
   resetAttrPosition: (key: string) => void;
@@ -322,28 +310,11 @@ export const useDbStore = create<DbState>((set, get) => {
     mode: 'erd',
     sqlCode: DEFAULT_SQL,
     usecaseCode: DEFAULT_USECASE,
-    activityCode: DEFAULT_ACTIVITY,
-    sequenceCode: DEFAULT_SEQUENCE,
     selectedUsecaseId: null,
     setSelectedUsecaseId: (id) => {
       set({ selectedUsecaseId: id });
       const currentMode = get().mode;
-      if (currentMode === 'activity' || currentMode === 'sequence') {
-        get().triggerParse(currentMode);
-      }
     },
-    activityCodes: {},
-    sequenceCodes: {},
-    activityFormDatas: {},
-    setActivityFormData: (usecaseId, data) => set(state => {
-      const safeId = usecaseId || '_global';
-      return {
-        activityFormDatas: {
-          ...state.activityFormDatas,
-          [safeId]: data
-        }
-      };
-    }),
     excludedTables: [],
   apiKey: '',
   isAiLoading: false,
@@ -351,8 +322,6 @@ export const useDbStore = create<DbState>((set, get) => {
   schema: { tables: [], relationships: [] },
   layout: null,
   usecaseDiagram: null,
-  activityDiagram: null,
-  sequenceDiagram: null,
   
   renderTime: 0,
   zoom: 1,
@@ -642,24 +611,6 @@ export const useDbStore = create<DbState>((set, get) => {
       set({ sqlCode: code, visualSchemaActive: false });
     } else if (mode === 'usecase') {
       set({ usecaseCode: code });
-    } else if (mode === 'activity') {
-      const selectedId = get().selectedUsecaseId;
-      if (selectedId) {
-        set((state) => ({
-          activityCodes: { ...state.activityCodes, [selectedId]: code }
-        }));
-      } else {
-        set({ activityCode: code });
-      }
-    } else if (mode === 'sequence') {
-      const selectedId = get().selectedUsecaseId;
-      if (selectedId) {
-        set((state) => ({
-          sequenceCodes: { ...state.sequenceCodes, [selectedId]: code }
-        }));
-      } else {
-        set({ sequenceCode: code });
-      }
     }
   },
 
@@ -719,39 +670,6 @@ export const useDbStore = create<DbState>((set, get) => {
           umlUsecases: synced.usecases,
           umlLinks: synced.links,
           umlRelations: synced.relations,
-          renderTime: Math.round(duration),
-          error: null
-        });
-      } else if (targetMode === 'activity') {
-        const selectedId = get().selectedUsecaseId;
-        const selectedUsecase = get().umlUsecases.find(u => u.id === selectedId);
-        const usecaseName = selectedUsecase ? selectedUsecase.name : 'Use Case';
-        const defaultForUsecase = `start\n:${usecaseName} process;\nstop\n`;
-        const code = codeArg !== undefined 
-          ? codeArg 
-          : (selectedId ? ((get().activityCodes || {})[selectedId] ?? defaultForUsecase) : get().activityCode);
-        const parsed = parseActivity(code);
-        const activityDiagram = await computeActivityLayout(parsed);
-        
-        const duration = performance.now() - startTime;
-        set({
-          activityDiagram,
-          renderTime: Math.round(duration),
-          error: null
-        });
-      } else if (targetMode === 'sequence') {
-        const selectedId = get().selectedUsecaseId;
-        const selectedUsecase = get().umlUsecases.find(u => u.id === selectedId);
-        const usecaseName = selectedUsecase ? selectedUsecase.name : 'Use Case';
-        const defaultForUsecase = `User -> System : Start ${usecaseName}\nSystem -> Database : Fetch details\nDatabase -> System : Return record\nSystem -> User : Display success\n`;
-        const code = codeArg !== undefined 
-          ? codeArg 
-          : (selectedId ? ((get().sequenceCodes || {})[selectedId] ?? defaultForUsecase) : get().sequenceCode);
-        const sequenceDiagram = parseSequence(code);
-        
-        const duration = performance.now() - startTime;
-        set({
-          sequenceDiagram,
           renderTime: Math.round(duration),
           error: null
         });
@@ -865,10 +783,19 @@ export const useDbStore = create<DbState>((set, get) => {
     }
   },
 
-  initializeStore: () => {
+  initializeStore: (currentProjectId?: string | null) => {
     if (typeof window !== 'undefined') {
       const savedKey = localStorage.getItem('fooldb_gemini_key') || '';
       set({ apiKey: savedKey });
+
+      if (currentProjectId) {
+        const cachedProjectId = localStorage.getItem('fooldb_last_project_id');
+        if (cachedProjectId && cachedProjectId !== currentProjectId) {
+          localStorage.removeItem(BUILDER_CACHE_KEY);
+          localStorage.removeItem('fooldb_attr_positions');
+        }
+        localStorage.setItem('fooldb_last_project_id', currentProjectId);
+      }
       try {
         const saved = localStorage.getItem('fooldb_attr_positions');
         if (saved) {
@@ -881,7 +808,7 @@ export const useDbStore = create<DbState>((set, get) => {
         const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
         if (cachedBuilderState) {
           const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
-            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'activityCode' | 'sequenceCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations' | 'selectedUsecaseId' | 'activityCodes' | 'sequenceCodes' | 'activityFormDatas'
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations' | 'selectedUsecaseId'
           >>;
           set({
             ...cached,
@@ -895,9 +822,7 @@ export const useDbStore = create<DbState>((set, get) => {
               ? (cached.sqlCode || DEFAULT_SQL)
               : targetMode === 'usecase'
                 ? (cached.usecaseCode || DEFAULT_USECASE)
-                : targetMode === 'activity'
-                  ? (cached.activityCode || DEFAULT_ACTIVITY)
-                  : (cached.sequenceCode || DEFAULT_SEQUENCE);
+                : (cached.sqlCode || DEFAULT_SQL);
             get().triggerParse(targetMode, code);
           }
         } else {
@@ -996,12 +921,7 @@ export const useDbStore = create<DbState>((set, get) => {
       mode: 'erd',
       sqlCode: DEFAULT_SQL,
       usecaseCode: DEFAULT_USECASE,
-      activityCode: DEFAULT_ACTIVITY,
-      sequenceCode: DEFAULT_SEQUENCE,
       selectedUsecaseId: null,
-      activityCodes: {},
-      sequenceCodes: {},
-      activityFormDatas: {},
       excludedTables: [],
       visualSchema: { tables: [], relationships: [] },
       visualSchemaActive: false,
@@ -1026,8 +946,6 @@ if (typeof window !== 'undefined') {
       visualSchemaActive: state.visualSchemaActive,
       sqlCode: state.sqlCode,
       usecaseCode: state.usecaseCode,
-      activityCode: state.activityCode,
-      sequenceCode: state.sequenceCode,
       relNotation: state.relNotation,
       lrsKeyNotation: state.lrsKeyNotation,
       classMethods: state.classMethods,
@@ -1039,9 +957,6 @@ if (typeof window !== 'undefined') {
       umlLinks: state.umlLinks,
       umlRelations: state.umlRelations,
       selectedUsecaseId: state.selectedUsecaseId,
-      activityCodes: state.activityCodes,
-      sequenceCodes: state.sequenceCodes,
-      activityFormDatas: state.activityFormDatas,
     };
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });

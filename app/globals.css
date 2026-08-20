@@ -14,7 +14,6 @@ body {
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
   margin: 0;
   padding: 0;
 }
@@ -22,6 +21,25 @@ body {
 /* Ensure all interactive elements inherit the same font */
 button, input, select, textarea {
   font-family: inherit;
+}
+
+/* Global minimal scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #52525b;
 }
 
 /* Compact scrollbar for scrollable editor panels. */
@@ -98,4 +116,42 @@ button, input, select, textarea {
   50% {
     opacity: 1;
   }
+}
+
+/* Glassmorphic Template Styles */
+.glass-panel {
+  background: rgba(45, 52, 73, 0.3);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-edge {
+  position: relative;
+}
+
+.glass-edge::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.15), rgba(255,255,255,0.02));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+.spotlight {
+  position: absolute;
+  width: 800px;
+  height: 800px;
+  background: radial-gradient(circle, rgba(168,85,247,0.1) 0%, rgba(11,19,38,0) 70%);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
 }

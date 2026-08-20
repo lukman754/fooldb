@@ -558,6 +558,8 @@ export function parseSqlSchema(sql: string): DatabaseSchema {
       const refTable = tables.find(t => t.name.toLowerCase() === fk.referencedTable.toLowerCase());
       if (!refTable) continue;
 
+      if (refTable.name.toLowerCase() === table.name.toLowerCase()) continue;
+
       // Determine relationship type: 1:1 or 1:N
       // If the FK columns are unique in the current table (meaning they constitute the PK or a Unique constraint)
       let isUniqueFk = false;
