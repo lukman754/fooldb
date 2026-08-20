@@ -116,14 +116,14 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
             {/* Text Content */}
             <div className="flex flex-col gap-8 z-10">
-              <h1 className="font-display text-display text-on-surface">
-                Take control of <br />
+              <h1 className="font-display text-[2.5rem] leading-[1.1] md:text-[3.5rem] text-on-surface tracking-tight">
+                Generasi Diagram <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-primary-container">
-                  your database
+                  Lebih Cepat
                 </span>
               </h1>
               <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl">
-                Create, manage, and optimize database schemas from one intelligent workspace. Track performance, increase efficiency, and stay in control of your data architecture.
+                Alat web praktis untuk mempercepat pembuatan dan perancangan skema database Anda. Bebas hambatan, simpel, dan dapat diekspor langsung ke Draw.io.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 mt-4">
                 <button onClick={handleDashboard} className="bg-primary text-on-primary font-label-md px-8 py-4 rounded-lg flex items-center justify-center gap-2 hover:bg-primary-fixed transition-all duration-300 active:scale-95 shadow-glow-primary">
@@ -154,14 +154,14 @@ export default function Home() {
               </div>
 
               {/* 3D Glass Cards representing Database Tables */}
-              <div className="relative w-full h-full transform-style-3d rotate-x-[15deg] rotate-y-[-15deg] transition-transform duration-700 hover:rotate-x-[5deg] hover:rotate-y-[-5deg]">
+              <div className="relative w-full h-[300px] md:h-full transform-style-3d rotate-x-[15deg] rotate-y-[-15deg] transition-transform duration-700 hover:rotate-x-[5deg] hover:rotate-y-[-5deg]">
                 {/* Main Table Card */}
-                <div className="absolute top-[20%] left-[10%] w-[60%] h-[50%] glass-panel glass-edge rounded-xl p-6 shadow-glow-primary z-30 transform translate-z-[50px] bg-gradient-to-br from-surface-variant/80 to-surface/40">
+                <div className="absolute top-[15%] left-[5%] md:left-[10%] w-[75%] md:w-[60%] h-auto glass-panel glass-edge rounded-xl p-5 shadow-glow-primary z-30 transform translate-z-[50px] bg-gradient-to-br from-surface-variant/80 to-surface/40">
                   <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
                     <span className="font-label-md text-primary font-bold">Users_Table</span>
                     <span className="material-symbols-outlined text-primary/70 text-[18px]">vpn_key</span>
                   </div>
-                  <ul className="space-y-3 font-label-sm text-on-surface-variant">
+                  <ul className="space-y-3 font-label-sm text-on-surface-variant pb-2">
                     <li className="flex justify-between">
                       <span className="text-on-surface">id</span> <span className="text-primary/60">UUID</span>
                     </li>
@@ -172,27 +172,20 @@ export default function Home() {
                       <span className="text-on-surface">password_hash</span>{" "}
                       <span className="text-primary/60">VARCHAR</span>
                     </li>
-                    <li className="flex justify-between">
-                      <span className="text-on-surface">created_at</span>{" "}
-                      <span className="text-primary/60">TIMESTAMP</span>
-                    </li>
                   </ul>
                 </div>
                 {/* Secondary Table Card */}
-                <div className="absolute bottom-[10%] right-[5%] w-[45%] h-[40%] glass-panel glass-edge rounded-xl p-6 shadow-lg z-20 transform translate-z-[20px] bg-surface-container-high/60 backdrop-blur-md">
+                <div className="absolute bottom-[5%] md:bottom-[15%] right-[0%] md:right-[5%] w-[65%] md:w-[50%] h-auto glass-panel glass-edge rounded-xl p-5 shadow-lg z-20 transform translate-z-[20px] bg-surface-container-high/60 backdrop-blur-md">
                   <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
                     <span className="font-label-md text-tertiary font-bold">Orders_Table</span>
                     <span className="material-symbols-outlined text-tertiary/70 text-[18px]">shopping_cart</span>
                   </div>
-                  <ul className="space-y-2 font-label-sm text-on-surface-variant">
+                  <ul className="space-y-2 font-label-sm text-on-surface-variant pb-1">
                     <li className="flex justify-between">
                       <span className="text-on-surface">order_id</span> <span className="text-primary/60">INT</span>
                     </li>
                     <li className="flex justify-between">
                       <span className="text-on-surface">user_id</span> <span className="text-tertiary/60">FK</span>
-                    </li>
-                    <li className="flex justify-between">
-                      <span className="text-on-surface">total</span> <span className="text-primary/60">DECIMAL</span>
                     </li>
                   </ul>
                 </div>
@@ -221,13 +214,13 @@ export default function Home() {
         <section className="py-section-padding px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto relative">
           <div className="spotlight top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2"></div>
           <div className="text-center mb-16">
-            <h2 className="font-headline-lg text-headline-lg text-on-surface mb-4">Semua yang Anda butuhkan</h2>
+            <h2 className="font-headline-lg text-headline-lg text-on-surface mb-4">Fitur Lengkap untuk Anda</h2>
             <p className="font-body-md text-body-md text-on-surface-variant max-w-2xl mx-auto">
-              Powerful tools to visualize, design, and implement your database architecture with precision and elegance.
+              Memudahkan konversi, perancangan, dan pengelolaan diagram. Tidak perlu tools berat, semua dari web.
             </p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Card 1: ERD & LRS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            {/* Card 1: ERD */}
             <div className="glass-panel glass-edge rounded-2xl p-8 hover:shadow-glow-primary transition-all duration-500 group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-[40px] transform translate-x-1/2 -translate-y-1/2 group-hover:bg-primary/20 transition-colors"></div>
               <div className="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center mb-6 border border-white/5">
@@ -235,13 +228,26 @@ export default function Home() {
                   schema
                 </span>
               </div>
-              <h3 className="font-headline-md text-headline-md text-on-surface mb-3 text-[24px]">ERD &amp; LRS</h3>
+              <h3 className="font-headline-md text-headline-md text-on-surface mb-3 text-[24px]">Membuat ERD</h3>
               <p className="font-body-md text-body-md text-on-surface-variant">
-                Design Entity-Relationship Diagrams and Logical Record Structures with intuitive drag-and-drop tools.
+                Rancang dan tulis struktur ERD Anda dengan editor sederhana, lalu visualisasikan hasilnya seketika.
               </p>
             </div>
-            {/* Card 2: Class Diagram */}
-            <div className="glass-panel glass-edge rounded-2xl p-8 hover:shadow-glow-primary transition-all duration-500 group relative overflow-hidden transform md:-translate-y-4">
+            {/* Card 2: Transform ERD to LRS */}
+            <div className="glass-panel glass-edge rounded-2xl p-8 hover:shadow-glow-primary transition-all duration-500 group relative overflow-hidden transform lg:-translate-y-4">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-[40px] transform translate-x-1/2 -translate-y-1/2 group-hover:bg-primary/20 transition-colors"></div>
+              <div className="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center mb-6 border border-white/5">
+                <span className="material-symbols-outlined text-primary text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
+                  transform
+                </span>
+              </div>
+              <h3 className="font-headline-md text-headline-md text-on-surface mb-3 text-[24px]">Transform ERD ke LRS</h3>
+              <p className="font-body-md text-body-md text-on-surface-variant">
+                Otomatis mengonversi Entity-Relationship Diagram Anda menjadi Logical Record Structure (LRS) dengan satu klik.
+              </p>
+            </div>
+            {/* Card 3: Class Diagram */}
+            <div className="glass-panel glass-edge rounded-2xl p-8 hover:shadow-glow-primary transition-all duration-500 group relative overflow-hidden transform lg:-translate-y-4">
               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-[40px] transform translate-x-1/2 -translate-y-1/2 group-hover:bg-primary/20 transition-colors"></div>
               <div className="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center mb-6 border border-white/5">
                 <span className="material-symbols-outlined text-primary text-[28px]" style={{ fontVariationSettings: "'FILL' 1" }}>
@@ -250,10 +256,10 @@ export default function Home() {
               </div>
               <h3 className="font-headline-md text-headline-md text-on-surface mb-3 text-[24px]">Class Diagram</h3>
               <p className="font-body-md text-body-md text-on-surface-variant">
-                Visualize object-oriented systems mapping out classes, attributes, operations, and relationships clearly.
+                Visualisasikan sistem berbasis objek dengan cepat, menampilkan class, atribut, operasi, dan relasi.
               </p>
             </div>
-            {/* Card 3: Use Case */}
+            {/* Card 4: Use Case */}
             <div className="glass-panel glass-edge rounded-2xl p-8 hover:shadow-glow-primary transition-all duration-500 group relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-[40px] transform translate-x-1/2 -translate-y-1/2 group-hover:bg-primary/20 transition-colors"></div>
               <div className="w-14 h-14 rounded-xl bg-surface-container flex items-center justify-center mb-6 border border-white/5">
@@ -263,7 +269,7 @@ export default function Home() {
               </div>
               <h3 className="font-headline-md text-headline-md text-on-surface mb-3 text-[24px]">Use Case</h3>
               <p className="font-body-md text-body-md text-on-surface-variant">
-                Model system interactions, identify user roles, and define functional requirements with ease.
+                Modelkan interaksi sistem, identifikasi peran user, dan spesifikasikan fungsionalitas dengan mudah.
               </p>
             </div>
           </div>
@@ -272,37 +278,15 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="bg-background w-full py-section-gap border-t border-outline-variant/30 mt-section-padding">
-        <div className="flex flex-col md:flex-row justify-between items-center px-margin-desktop max-w-container-max mx-auto gap-8 py-8">
+        <div className="flex flex-col md:flex-row justify-between items-center px-margin-desktop max-w-container-max mx-auto gap-4 py-6">
           <div className="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
             <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
               database
             </span>
             FooIDB
           </div>
-          <ul className="flex flex-wrap justify-center gap-6">
-            <li>
-              <a className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors opacity-80 hover:opacity-100" href="#">
-                Documentation
-              </a>
-            </li>
-            <li>
-              <a className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors opacity-80 hover:opacity-100" href="#">
-                Privacy
-              </a>
-            </li>
-            <li>
-              <a className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors opacity-80 hover:opacity-100" href="https://github.com/lukman754" target="_blank" rel="noopener noreferrer">
-                Github
-              </a>
-            </li>
-            <li>
-              <a className="font-label-sm text-label-sm text-on-surface-variant hover:text-primary transition-colors opacity-80 hover:opacity-100" href="#">
-                Status
-              </a>
-            </li>
-          </ul>
-          <div className="font-label-sm text-label-sm text-on-surface-variant opacity-80">
-            © {new Date().getFullYear()} FooIDB. Engineered for precision by{" "}
+          <div className="font-label-sm text-label-sm text-on-surface-variant opacity-80 text-center">
+            © {new Date().getFullYear()} FooIDB. Dibuat dengan ☕ oleh{" "}
             <a href="https://github.com/lukman754" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">
               lukman754
             </a>
