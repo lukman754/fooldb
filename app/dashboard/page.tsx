@@ -325,6 +325,28 @@ export default function DashboardPage() {
   const { data: session, status } = useSession();
   const [selectedProject, setSelectedProject] = useState<DriveFile | null>(null);
 
+  useEffect(() => {
+    const handlePopState = () => {
+      // If we go back natively, just clear the selected project
+      setSelectedProject(null);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleSelectProject = (proj: DriveFile) => {
+    window.history.pushState({ view: 'project', id: proj.id }, '');
+    setSelectedProject(proj);
+  };
+
+  const handleBackFromProject = () => {
+    if (window.history.state?.view === 'project') {
+      window.history.back();
+    } else {
+      setSelectedProject(null);
+    }
+  };
+
   if (status === 'loading') {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
@@ -337,20 +359,12 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
       <nav className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
         <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2">
+          <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Kembali ke Beranda">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
               <span className="text-white font-bold text-sm">F</span>
             </div>
-            <span className="font-bold text-zinc-100 hidden sm:block">FoolDB</span>
+            <span className="font-bold text-zinc-100 hidden sm:block tracking-tight">FooIDB</span>
           </Link>
-          <span className="text-zinc-700">/</span>
-          <span className="text-sm text-zinc-400 font-medium cursor-pointer hover:text-zinc-300" onClick={() => setSelectedProject(null)}>Dashboard</span>
-          {selectedProject && (
-            <>
-              <span className="text-zinc-700">/</span>
-              <span className="text-sm text-zinc-200 font-medium truncate max-w-[150px]">{selectedProject.name}</span>
-            </>
-          )}
         </div>
         <div className="flex items-center gap-3">
           <Link
@@ -371,7 +385,23 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      <div className="max-w-4xl mx-auto px-6 py-10">
+      <div className="max-w-4xl mx-auto px-6 py-6 md:py-10">
+        
+        {/* Breadcrumbs moved below header */}
+        {session && (
+          <div className="flex items-center gap-2 mb-6 text-sm">
+            <span className="text-zinc-400 font-medium cursor-pointer hover:text-zinc-200 transition-colors" onClick={handleBackFromProject}>
+              Dashboard
+            </span>
+            {selectedProject && (
+              <>
+                <span className="text-zinc-600">/</span>
+                <span className="text-zinc-100 font-semibold truncate max-w-[200px]">{selectedProject.name}</span>
+              </>
+            )}
+          </div>
+        )}
+
         {!session ? (
           <div className="text-center py-20">
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-zinc-800 border border-zinc-700 mb-6">
@@ -407,10 +437,10 @@ export default function DashboardPage() {
 
             {selectedProject ? (
               // @ts-expect-error: NextAuth Session lacks accessToken
-              <ProjectDiagrams accessToken={session.accessToken as string} project={selectedProject} onBack={() => setSelectedProject(null)} />
+              <ProjectDiagrams accessToken={session.accessToken as string} project={selectedProject} onBack={handleBackFromProject} />
             ) : (
               // @ts-expect-error: NextAuth Session lacks accessToken
-              <ProjectList accessToken={session.accessToken as string} onSelectProject={setSelectedProject} />
+              <ProjectList accessToken={session.accessToken as string} onSelectProject={handleSelectProject} />
             )}
           </div>
         )}

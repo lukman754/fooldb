@@ -51,7 +51,7 @@ export default function Home() {
               </button>
             ) : (
               <>
-                <button onClick={() => signIn("google")} className="text-on-surface/60 font-medium hover:text-primary transition-all duration-300 active:scale-95">
+                <button onClick={() => signIn("google", { callbackUrl: "/dashboard" })} className="text-on-surface/60 font-medium hover:text-primary transition-all duration-300 active:scale-95">
                   Log in
                 </button>
                 <button onClick={() => signIn("google", { callbackUrl: "/dashboard" })} className="bg-primary/90 hover:bg-primary text-on-primary font-label-md px-6 py-2.5 rounded-lg transition-all duration-300 active:scale-95 shadow-glow-primary">
@@ -97,7 +97,7 @@ export default function Home() {
                 </button>
               ) : (
                 <>
-                  <button onClick={() => signIn("google")} className="border border-white/20 text-on-surface font-label-md px-6 py-3 rounded-lg font-semibold text-center">
+                  <button onClick={() => signIn("google", { callbackUrl: "/dashboard" })} className="border border-white/20 text-on-surface font-label-md px-6 py-3 rounded-lg font-semibold text-center">
                     Log in
                   </button>
                   <button onClick={() => signIn("google", { callbackUrl: "/dashboard" })} className="bg-primary text-on-primary font-label-md px-6 py-3 rounded-lg font-semibold text-center">
