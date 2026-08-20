@@ -373,7 +373,11 @@ export default function DashboardPage() {
           </Link>
           {session && (
             <button
-              onClick={() => signOut({ callbackUrl: '/' })}
+              onClick={() => {
+                if (window.confirm("Apakah Anda yakin ingin keluar dari FooIDB?")) {
+                  signOut({ callbackUrl: '/' });
+                }
+              }}
               className="flex items-center justify-center w-9 h-9 rounded-lg border border-red-900/50 bg-red-950/20 text-red-500 hover:bg-red-900/40 transition-colors"
               title="Sign out"
             >
@@ -405,10 +409,11 @@ export default function DashboardPage() {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-zinc-800 border border-zinc-700 mb-6">
               <img src="https://img.icons8.com/?size=100&id=eKDChMKt75eu&format=png&color=000000" alt="Drive" className="w-8 h-8" />
             </div>
-            <h1 className="text-2xl font-bold mb-3">Masuk dengan Google Drive</h1>
-            <p className="text-zinc-500 text-sm mb-8 max-w-md mx-auto leading-relaxed">
-              Login dengan akun Google untuk mengelola project diagram secara terpusat di Google Drive Anda.
-            </p>
+            <h1 className="text-2xl font-bold mb-3">Akses Google Drive</h1>
+            <div className="bg-amber-950/30 border border-amber-900/50 text-amber-500 text-sm p-4 rounded-xl mb-8 max-w-md mx-auto text-left flex gap-3 items-start">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 mt-0.5"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+              <p className="leading-relaxed">Sesi akses ke Google Drive Anda mungkin telah berakhir atau belum terhubung. Harap login ulang untuk mulai mengelola diagram.</p>
+            </div>
             <button
               onClick={() => signIn('google', { callbackUrl: '/dashboard' })}
               className="inline-flex items-center gap-3 px-6 py-3 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 hover:border-zinc-500 text-white font-medium transition-all"
