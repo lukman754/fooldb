@@ -438,10 +438,8 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
         </button>
         <div className="flex items-center gap-2">
           <Link href="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Return to Dashboard">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 shrink-0">
-              <span className="text-white font-bold text-xs">F</span>
-            </div>
-            <span className="font-bold text-zinc-100 text-sm hidden sm:block tracking-tight">FoolDB</span>
+            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-7 h-7 rounded-md shadow-sm shrink-0" />
+            <span className="font-bold text-zinc-100 text-sm hidden sm:block tracking-tight">FooIDB</span>
           </Link>
         </div>
         

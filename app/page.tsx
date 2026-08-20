@@ -25,9 +25,7 @@ export default function Home() {
         <div className="flex justify-between items-center px-margin-desktop py-4 max-w-container-max mx-auto hidden md:flex">
           {/* Brand */}
           <div className="font-headline-md text-headline-md font-bold text-on-surface tracking-tighter flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
-              database
-            </span>
+            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm" />
             FooIDB
           </div>
           {/* Navigation Links */}
@@ -65,9 +63,7 @@ export default function Home() {
         {/* Mobile Nav Fallback (Simple) */}
         <div className="flex justify-between items-center px-margin-mobile py-4 md:hidden">
           <div className="font-headline-md text-headline-md font-bold text-on-surface tracking-tighter flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
-              database
-            </span>
+            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm" />
             FooIDB
           </div>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="material-symbols-outlined text-on-surface">
@@ -280,9 +276,7 @@ export default function Home() {
       <footer className="bg-background w-full py-section-gap border-t border-outline-variant/30 mt-section-padding">
         <div className="flex flex-col md:flex-row justify-between items-center px-margin-desktop max-w-container-max mx-auto gap-4 py-6">
           <div className="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>
-              database
-            </span>
+            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm grayscale opacity-80" />
             FooIDB
           </div>
           <div className="font-label-sm text-label-sm text-on-surface-variant opacity-80 text-center">

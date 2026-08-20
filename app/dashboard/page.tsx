@@ -360,9 +360,7 @@ export default function DashboardPage() {
       <nav className="flex items-center justify-between px-6 py-4 border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Kembali ke Beranda">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
-              <span className="text-white font-bold text-sm">F</span>
-            </div>
+            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-8 h-8 rounded-md shadow-sm" />
             <span className="font-bold text-zinc-100 hidden sm:block tracking-tight">FooIDB</span>
           </Link>
         </div>
