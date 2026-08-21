@@ -184,8 +184,10 @@ export default function DrawioPreview() {
   };
 
   // Determine dynamic canvas size based on active diagram data
-  let canvasWidth = 800;
-  let canvasHeight = 600;
+  // Add generous padding so elements near the edge are never clipped
+  const CANVAS_PADDING = 300;
+  let canvasWidth = 1200;
+  let canvasHeight = 900;
   let hasDiagramData = false;
 
   if (
@@ -196,16 +198,16 @@ export default function DrawioPreview() {
     mode === "class"
   ) {
     if (layout) {
-      canvasWidth = layout.width;
-      canvasHeight = layout.height;
+      canvasWidth = layout.width + CANVAS_PADDING * 2;
+      canvasHeight = layout.height + CANVAS_PADDING * 2;
       hasDiagramData = true;
     }
   } else if (mode === "usecase" || mode === "uml") {
     if (usecaseDiagram) {
-      canvasWidth = 750;
+      canvasWidth = 750 + CANVAS_PADDING;
       const systemHeight = Math.max(320, usecaseDiagram.usecases.length * 90 + 80);
       const systemsCount = Math.max(1, usecaseDiagram.systems.length);
-      canvasHeight = Math.max(400, 60 + systemsCount * (systemHeight + 50) + 50);
+      canvasHeight = Math.max(400, 60 + systemsCount * (systemHeight + 50) + 50) + CANVAS_PADDING;
       hasDiagramData = true;
     }
   }
@@ -565,6 +567,8 @@ export default function DrawioPreview() {
           </div>
 
           <div className="relative flex items-center gap-2 shrink-0">
+            {/* Orbit/radius only relevant in Chen ERD mode where attributes have orbits */}
+            {mode === "erd" && (
             <button
               ref={orbitBtnRef}
               onClick={() => {
@@ -587,6 +591,7 @@ export default function DrawioPreview() {
                 className={`h-3.5 w-3.5 shrink-0 transition-transform ${showAttrControls ? "rotate-180" : ""}`}
               />
             </button>
+            )}
 
             {showAttrControls && orbitBtnRect && createPortal(
               <>
@@ -1326,8 +1331,9 @@ export default function DrawioPreview() {
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 transformOrigin: "0 0",
-                transition: isPanning ? "none" : "transform 0.02s linear",
+                transition: isPanning ? "none" : "transform 0.06s ease-out",
                 willChange: "transform",
+                contain: "layout paint",
               }}
               className="absolute shadow-2xl"
             >

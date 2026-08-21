@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
+import ModeTabs from '@/components/ModeTabs';
 import SqlEditor from '@/components/editor/SqlEditor';
 import TransformationGuide from '@/components/editor/TransformationGuide';
 import VisualEditor from '@/components/editor/VisualEditor';
@@ -148,6 +149,7 @@ function EditorContent() {
         </div>
       </main>
 
+      <ModeTabs />
       <Footer />
     </div>
   );

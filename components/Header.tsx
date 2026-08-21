@@ -231,16 +231,6 @@ AuthAPI -> User : Password Updated Successfully
   }
 ];
 
-// All navigation tabs
-const NAV_TABS: { id: AppMode; label: string; shortLabel: string }[] = [
-  { id: 'visual',         label: 'ERD / LRS Builder', shortLabel: 'Builder' },
-  { id: 'erd',            label: 'Chen ERD',           shortLabel: 'Chen ERD' },
-  { id: 'lrs',            label: 'LRS Schema',         shortLabel: 'LRS' },
-  { id: 'transformation', label: 'ERD ➔ LRS',          shortLabel: 'ERD→LRS' },
-  { id: 'class',          label: 'Class Diagram',      shortLabel: 'Class' },
-  { id: 'uml',            label: 'UML Builder',        shortLabel: 'UML' },
-  { id: 'usecase',        label: 'Use Case',           shortLabel: 'Use Case' },
-];
 
 interface HeaderProps {
   sidebarOpen: boolean;
@@ -286,11 +276,11 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
     initializeStore(projectId);
   }, [initializeStore, projectId]);
 
-  // Auto-save every 1 minute to Drive
+  // Auto-save every 5 minutes to Drive
   useEffect(() => {
     const interval = setInterval(() => {
       driveMenuRef.current?.triggerSave();
-    }, 60000);
+    }, 300000);
     return () => clearInterval(interval);
   }, []);
 
@@ -438,7 +428,7 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
         </button>
         <div className="flex items-center gap-2">
           <Link href="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Return to Dashboard">
-            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-7 h-7 rounded-md shadow-sm shrink-0" />
+            <img src="/Fool.png" alt="FooIDB Logo" className="w-7 h-7 rounded-md shadow-sm shrink-0" />
             <span className="font-bold text-zinc-100 text-sm hidden sm:block tracking-tight">FooIDB</span>
           </Link>
         </div>
@@ -453,93 +443,8 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
         )}
       </div>
 
-      {/* Divider */}
-      <div className="w-px h-6 bg-zinc-800 shrink-0" />
-
-      {/* Mode Tabs — desktop: scrollable strip | mobile: hidden (use right drawer) */}
-      <nav className="hidden md:flex flex-1 min-w-0 overflow-hidden">
-        <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-minimal py-0.5">
-          {NAV_TABS.map((tab) => {
-            const isActive = mode === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setMode(tab.id)}
-                className={`px-2.5 py-1.5 rounded text-xs font-medium transition-all shrink-0 whitespace-nowrap ${
-                  isActive
-                    ? 'bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm'
-                    : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-900 border border-transparent'
-                }`}
-              >
-                <span className="hidden lg:inline">{tab.label}</span>
-                <span className="lg:hidden">{tab.shortLabel}</span>
-              </button>
-            );
-          })}
-        </div>
-      </nav>
-
-      {/* Mobile: active mode badge (spacer) */}
-      <div className="md:hidden flex-1 min-w-0 flex items-center px-1">
-        <span className="text-xs font-medium text-zinc-400 truncate">
-          {NAV_TABS.find(t => t.id === mode)?.label ?? mode}
-        </span>
-      </div>
-
-      {/* Divider */}
-      <div className="w-px h-6 bg-zinc-800 shrink-0" />
-
-      {/* Mobile: nav drawer trigger */}
-      <button
-        onClick={() => setShowMobileNav(true)}
-        className="md:hidden flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition-colors shrink-0"
-        title="Switch mode"
-      >
-        <LayoutGrid className="h-4 w-4" />
-      </button>
-
-      {/* Mobile nav drawer — right side */}
-      {showMobileNav && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-[9999998] bg-black/60 md:hidden"
-            onClick={() => setShowMobileNav(false)}
-          />
-          {/* Drawer panel */}
-          <div className="fixed right-0 top-0 h-full w-64 z-[9999999] bg-zinc-950 border-l border-zinc-800 flex flex-col shadow-2xl md:hidden">
-            {/* Drawer header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800">
-              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wide">Switch Mode</span>
-              <button
-                onClick={() => setShowMobileNav(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {/* Tab list */}
-            <div className="flex flex-col gap-0.5 p-2 overflow-y-auto scrollbar-minimal flex-1">
-              {NAV_TABS.map((tab) => {
-                const isActive = mode === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => { setMode(tab.id); setShowMobileNav(false); }}
-                    className={`w-full text-left px-3 py-2.5 rounded-md text-xs font-medium transition-all ${
-                      isActive
-                        ? 'bg-zinc-800 text-zinc-100 border border-zinc-700'
-                        : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900 border border-transparent'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      )}
+      {/* Spacer */}
+      <div className="flex-1" />
 
       {/* Right Controls */}
       <div className="flex items-center gap-1 shrink-0">

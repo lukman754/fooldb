@@ -25,7 +25,7 @@ export default function Home() {
         <div className="flex justify-between items-center px-margin-desktop py-4 max-w-container-max mx-auto hidden md:flex">
           {/* Brand */}
           <div className="font-headline-md text-headline-md font-bold text-on-surface tracking-tighter flex items-center gap-2">
-            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm" />
+            <img src="/Fool.png" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm" />
             FooIDB
           </div>
           {/* Navigation Links */}
@@ -63,7 +63,7 @@ export default function Home() {
         {/* Mobile Nav Fallback (Simple) */}
         <div className="flex justify-between items-center px-margin-mobile py-4 md:hidden">
           <div className="font-headline-md text-headline-md font-bold text-on-surface tracking-tighter flex items-center gap-2">
-            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm" />
+            <img src="/Fool.png" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm" />
             FooIDB
           </div>
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="material-symbols-outlined text-on-surface">
@@ -274,17 +274,29 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="bg-background w-full py-section-gap border-t border-outline-variant/30 mt-section-padding">
-        <div className="flex flex-col md:flex-row justify-between items-center px-margin-desktop max-w-container-max mx-auto gap-4 py-6">
-          <div className="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
-            <img src="/fooldb.jpeg" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm grayscale opacity-80" />
+        <div className="flex flex-col md:flex-row justify-between items-center px-margin-desktop max-w-container-max mx-auto gap-6 py-6">
+          {/* Logo - Kiri */}
+          <div className="flex-1 flex justify-start font-headline-md text-headline-md text-on-surface items-center gap-2">
+            <img src="/Fool.png" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm grayscale opacity-80" />
             FooIDB
           </div>
-          <div className="font-label-sm text-label-sm text-on-surface-variant opacity-80 text-center">
-            © {new Date().getFullYear()} FooIDB. Dibuat dengan ☕ oleh{" "}
-            <a href="https://github.com/lukman754" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">
-              lukman754
-            </a>
-            .
+          
+          {/* Visitor Badge - Tengah */}
+          <div className="flex-1 flex justify-center items-center">
+            <div title="Total Pengunjung" className="opacity-70 hover:opacity-100 transition-opacity">
+              <img src="https://komarev.com/ghpvc/?username=lukman754-fooldb-web&label=Visitors&color=b76dff&style=flat" alt="Visitors Badge" />
+            </div>
+          </div>
+
+          {/* Watermark - Kanan */}
+          <div className="flex-1 flex justify-end font-label-sm text-label-sm text-on-surface-variant opacity-80 text-center md:text-right">
+            <div>
+              © {new Date().getFullYear()} FooIDB. Dibuat dengan ☕ oleh{" "}
+              <a href="https://github.com/lukman754" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">
+                lukman754
+              </a>
+              .
+            </div>
           </div>
         </div>
       </footer>
