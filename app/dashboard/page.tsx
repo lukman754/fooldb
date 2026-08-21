@@ -35,7 +35,7 @@ function ProjectList({
         const projs = await api.getProjects(root);
         if (!mounted) return;
         setProjects(projs);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!mounted) return;
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.toLowerCase().includes('authentication') || msg.toLowerCase().includes('oauth') || msg.toLowerCase().includes('token')) {
@@ -220,7 +220,7 @@ function ProjectDiagrams({
         const api = new DriveApi(accessToken);
         const files = await api.getDiagrams(project.id);
         if (mounted) setDiagrams(files);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (!mounted) return;
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.toLowerCase().includes('authentication') || msg.toLowerCase().includes('oauth') || msg.toLowerCase().includes('token')) {
