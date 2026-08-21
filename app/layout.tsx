@@ -26,7 +26,7 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
       </head>
       <body
-        className={`${inter.variable} antialiased bg-background text-on-surface font-body-md min-h-screen relative overflow-x-hidden selection:bg-primary-container selection:text-on-primary-container`}
+        className={`${inter.variable} antialiased bg-background text-on-surface font-body-md min-h-dvh relative overflow-x-hidden selection:bg-primary-container selection:text-on-primary-container`}
       >
         {/* Atmospheric Background Layers */}
         <div className="fixed inset-0 z-[-1] pointer-events-none">

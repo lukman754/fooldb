@@ -18,6 +18,18 @@ body {
   padding: 0;
 }
 
+/*
+ * Fix for mobile browsers where 100vh includes the URL bar.
+ * 100dvh = dynamic viewport height (shrinks when URL bar is visible).
+ * Applied to any full-screen app containers.
+ */
+.h-dvh {
+  height: 100dvh;
+}
+.min-h-dvh {
+  min-height: 100dvh;
+}
+
 /* Ensure all interactive elements inherit the same font */
 button, input, select, textarea {
   font-family: inherit;

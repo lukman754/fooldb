@@ -90,7 +90,7 @@ function EditorContent() {
   return (
     <div
       ref={containerRef}
-      className="flex h-screen w-screen flex-col bg-zinc-950 text-zinc-100 overflow-hidden"
+      className="flex h-dvh w-full flex-col bg-zinc-950 text-zinc-100 overflow-hidden"
     >
       <Header 
         sidebarOpen={sidebarOpen} 
@@ -157,7 +157,7 @@ function EditorContent() {
 
 export default function EditorPage() {
   return (
-    <Suspense fallback={<div className="h-screen w-screen bg-zinc-950 flex items-center justify-center text-zinc-400">Loading editor...</div>}>
+    <Suspense fallback={<div className="h-dvh w-full bg-zinc-950 flex items-center justify-center text-zinc-400">Loading editor...</div>}>
       <EditorContent />
     </Suspense>
   );
