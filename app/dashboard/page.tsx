@@ -35,9 +35,14 @@ function ProjectList({
         const projs = await api.getProjects(root);
         if (!mounted) return;
         setProjects(projs);
-      } catch (e) {
+      } catch (e: any) {
         if (!mounted) return;
-        setError(e instanceof Error ? e.message : 'Gagal memuat projects');
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.toLowerCase().includes('authentication') || msg.toLowerCase().includes('oauth') || msg.toLowerCase().includes('token')) {
+          signOut({ callbackUrl: '/dashboard' });
+          return;
+        }
+        setError(msg || 'Gagal memuat projects');
       } finally {
         if (mounted) setLoading(false);
       }
@@ -215,7 +220,12 @@ function ProjectDiagrams({
         const api = new DriveApi(accessToken);
         const files = await api.getDiagrams(project.id);
         if (mounted) setDiagrams(files);
-      } catch (e) {
+      } catch (e: any) {
+        if (!mounted) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        if (msg.toLowerCase().includes('authentication') || msg.toLowerCase().includes('oauth') || msg.toLowerCase().includes('token')) {
+          signOut({ callbackUrl: '/dashboard' });
+        }
         console.error(e);
       } finally {
         if (mounted) setLoading(false);
