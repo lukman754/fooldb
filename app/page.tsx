@@ -274,29 +274,17 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="bg-background w-full py-section-gap border-t border-outline-variant/30 mt-section-padding">
-        <div className="flex flex-col md:flex-row justify-between items-center px-margin-desktop max-w-container-max mx-auto gap-6 py-6">
-          {/* Logo - Kiri */}
-          <div className="flex-1 flex justify-start font-headline-md text-headline-md text-on-surface items-center gap-2">
+        <div className="flex flex-col md:flex-row justify-between items-center px-margin-desktop max-w-container-max mx-auto gap-4 py-6">
+          <div className="font-headline-md text-headline-md text-on-surface flex items-center gap-2">
             <img src="/Fool.png" alt="FooIDB Logo" className="w-10 h-10 rounded-md shadow-sm grayscale opacity-80" />
             FooIDB
           </div>
-          
-          {/* Visitor Badge - Tengah */}
-          <div className="flex-1 flex justify-center items-center">
-            <div title="Total Pengunjung" className="opacity-70 hover:opacity-100 transition-opacity">
-              <img src="https://komarev.com/ghpvc/?username=lukman754-fooldb-web&label=Visitors&color=b76dff&style=flat" alt="Visitors Badge" />
-            </div>
-          </div>
-
-          {/* Watermark - Kanan */}
-          <div className="flex-1 flex justify-end font-label-sm text-label-sm text-on-surface-variant opacity-80 text-center md:text-right">
-            <div>
-              © {new Date().getFullYear()} FooIDB. Dibuat dengan ☕ oleh{" "}
-              <a href="https://github.com/lukman754" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">
-                lukman754
-              </a>
-              .
-            </div>
+          <div className="font-label-sm text-label-sm text-on-surface-variant opacity-80 text-center">
+            © {new Date().getFullYear()} FooIDB. Dibuat dengan ☕ oleh{" "}
+            <a href="https://github.com/lukman754" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary hover:underline">
+              lukman754
+            </a>
+            .
           </div>
         </div>
       </footer>
