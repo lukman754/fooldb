@@ -73,6 +73,8 @@ interface DbState {
   renderTime: number;
   zoom: number;
   error: string | null;
+  selectedEntityName: string | null;
+  setSelectedEntityName: (name: string | null) => void;
 
   // Visual ERD Builder
   visualSchema: DatabaseSchema;
@@ -89,6 +91,9 @@ interface DbState {
   addVisualFK: (fromTable: string, toTable: string) => void;
   removeVisualRelation: (relId: string) => void;
   triggerVisualLayout: () => Promise<void>;
+  hasClearedVisualSchema: boolean;
+  importSqlToVisual: () => void;
+  clearVisualSchema: () => void;
   
   setMode: (mode: AppMode) => void;
   setCode: (mode: AppMode, code: string) => void;
@@ -359,11 +364,38 @@ export const useDbStore = create<DbState>((set, get) => {
   renderTime: 0,
   zoom: 1,
   error: null,
+  selectedEntityName: null,
+  setSelectedEntityName: (name) => set({ selectedEntityName: name }),
 
   // Visual ERD Builder initial state
   visualSchema: { tables: [], relationships: [] },
   visualSchemaActive: false,
+  hasClearedVisualSchema: false,
 
+  importSqlToVisual: () => {
+    const currentSchema = get().schema;
+    const tables = JSON.parse(JSON.stringify(currentSchema.tables));
+    const relationships = currentSchema.relationships.map((r, idx) => ({
+      ...r,
+      id: r.id || `rel_${idx}_${Math.random().toString(36).substring(2, 9)}`,
+    }));
+    set({
+      visualSchema: { tables, relationships },
+      visualSchemaActive: true,
+      hasClearedVisualSchema: false,
+    });
+    get().triggerVisualLayout();
+  },
+
+  clearVisualSchema: () => {
+    set({
+      visualSchema: { tables: [], relationships: [] },
+      visualSchemaActive: false,
+      hasClearedVisualSchema: true,
+    });
+    get().triggerVisualLayout();
+  },
+ 
   addVisualTable: (name) => {
     if (!name.trim()) return;
     const existing = get().visualSchema.tables.find(t => t.name.toLowerCase() === name.trim().toLowerCase());
@@ -724,6 +756,14 @@ export const useDbStore = create<DbState>((set, get) => {
       get().triggerVisualLayout();
     } else if (mode === 'visual' || mode === 'uml') {
       set({ mode });
+      if (mode === 'visual') {
+        const hasVisualSchema = get().visualSchema.tables.length > 0;
+        const cleared = get().hasClearedVisualSchema;
+        if (!hasVisualSchema && !cleared && get().schema.tables.length > 0) {
+          get().importSqlToVisual();
+          return;
+        }
+      }
       get().triggerVisualLayout();
     } else {
       set({ mode });

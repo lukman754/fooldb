@@ -257,6 +257,12 @@ export default function DrawioPreview() {
   const removeVisualRelation = useDbStore(
     (state) => state.removeVisualRelation,
   );
+  // Global selection state — synced with VisualEditor
+  const selectedEntityName = useDbStore((state) => state.selectedEntityName);
+  const setSelectedEntityNameStore = useDbStore((state) => state.setSelectedEntityName);
+  const setSelectedEntityName = (name: string | null) => {
+    setSelectedEntityNameStore(name);
+  };
 
   const zoom = useDbStore((state) => state.zoom);
   const setZoom = useDbStore((state) => state.setZoom);
@@ -358,9 +364,6 @@ export default function DrawioPreview() {
     tableName: string;
     colName: string;
   } | null>(null);
-  const [selectedEntityName, setSelectedEntityName] = useState<string | null>(
-    null,
-  );
   const [selectedRelationId, setSelectedRelationId] = useState<string | null>(
     null,
   );
@@ -985,15 +988,34 @@ export default function DrawioPreview() {
 
     const cx = node.x + node.width / 2;
     const cy = node.y + node.height / 2;
+    
+    const table = node.table;
+    const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
+    const isPk = draggingAttr.colName === pkCol.name;
+
     const dx = mouseX - cx;
     const dy = mouseY - cy;
     const radius = Math.max(50, Math.min(350, Math.sqrt(dx * dx + dy * dy)));
-    const angle = Math.atan2(dy, dx);
+    const absoluteAngle = Math.atan2(dy, dx);
 
-    setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, {
-      angle,
-      radius,
-    });
+    if (isPk) {
+      setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, {
+        angle: absoluteAngle,
+        radius,
+      });
+    } else {
+      const pkKey = `${table.name}-${pkCol.name}`;
+      const pkIdx = table.columns.findIndex((c) => c.name === pkCol.name);
+      const pkDefaultAngle = (2 * Math.PI * pkIdx) / table.columns.length;
+      const pkDefaultRadius = 85 + table.columns.length * 5;
+      const pkPos = attrPositions[pkKey] || { angle: pkDefaultAngle, radius: pkDefaultRadius };
+      
+      const relativeAngle = absoluteAngle - pkPos.angle;
+      setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, {
+        angle: relativeAngle,
+        radius,
+      });
+    }
   };
 
   const startPinchGesture = () => {
@@ -1606,8 +1628,157 @@ export default function DrawioPreview() {
                       </button>
                     </div>
                   </div>
+                ) : selectedEntityName && selectedEntityTable ? (
+                  <div className="space-y-3">
+                    <div className="text-[10px] text-zinc-400 truncate">
+                      Entity: <span className="text-zinc-200 font-semibold">{selectedEntityName}</span>
+                    </div>
+
+                    {/* Collective Rotation Slider */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-zinc-500">Rotate attributes</span>
+                        <span className="text-blue-400 font-mono">
+                          {(() => {
+                            const table = selectedEntityTable;
+                            if (table) {
+                              const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
+                              const key = `${table.name}-${pkCol.name}`;
+                              const pos = attrPositions[key];
+                              if (pos) {
+                                let deg = Math.round((pos.angle * 180) / Math.PI);
+                                if (deg < 0) deg += 360;
+                                return `${deg}°`;
+                              }
+                            }
+                            return "0°";
+                          })()}
+                        </span>
+                      </div>
+                      <input
+                        type="range" min="0" max="360"
+                        value={(() => {
+                          const table = selectedEntityTable;
+                          if (table) {
+                            const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
+                            const key = `${table.name}-${pkCol.name}`;
+                            const pos = attrPositions[key];
+                            if (pos) {
+                              let deg = Math.round((pos.angle * 180) / Math.PI);
+                              if (deg < 0) deg += 360;
+                              return deg;
+                            }
+                          }
+                          return 0;
+                        })()}
+                        onChange={(e) => {
+                          const deg = parseInt(e.target.value, 10);
+                          const rad = (deg * Math.PI) / 180;
+                          const table = selectedEntityTable;
+                          if (!table) return;
+                          const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
+                          const key = `${table.name}-${pkCol.name}`;
+                          const current = attrPositions[key] || { angle: rad, radius: 85 + table.columns.length * 5 };
+                          setAttrPosition(key, { ...current, angle: rad });
+                        }}
+                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Collective Radius Slider */}
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-zinc-500">Orbit radius</span>
+                        <span className="text-blue-400 font-mono">
+                          {(() => {
+                            const table = selectedEntityTable;
+                            if (table) {
+                              const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
+                              const key = `${table.name}-${pkCol.name}`;
+                              const pos = attrPositions[key];
+                              if (pos) return `${Math.round(pos.radius)}px`;
+                            }
+                            return `${85 + (table?.columns.length || 0) * 5}px`;
+                          })()}
+                        </span>
+                      </div>
+                      <input
+                        type="range" min="50" max="350"
+                        value={(() => {
+                          const table = selectedEntityTable;
+                          if (table) {
+                            const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
+                            const key = `${table.name}-${pkCol.name}`;
+                            const pos = attrPositions[key];
+                            if (pos) return Math.round(pos.radius);
+                          }
+                          return 85 + (table?.columns.length || 0) * 5;
+                        })()}
+                        onChange={(e) => {
+                          const newRad = parseInt(e.target.value, 10);
+                          const table = selectedEntityTable;
+                          if (!table) return;
+                          table.columns.forEach((col) => {
+                            const key = `${table.name}-${col.name}`;
+                            const current = attrPositions[key] || { angle: 0, radius: newRad };
+                            setAttrPosition(key, { ...current, radius: newRad });
+                          });
+                        }}
+                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                      />
+                    </div>
+
+                    {/* Attribute Spacing (Clustering / Density) Slider */}
+                    {(() => {
+                      const table = selectedEntityTable;
+                      const pkCol = table?.columns.find((c) => c.isPrimaryKey) || table?.columns[0];
+                      const otherCols = table?.columns.filter((c) => c.name !== pkCol?.name) || [];
+                      if (otherCols.length === 0) return null;
+
+                      return (
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[10px]">
+                            <span className="text-zinc-500">Clustering spacing</span>
+                            <span className="text-blue-400 font-mono">
+                              {(() => {
+                                const col0 = otherCols[0];
+                                const pos = attrPositions[`${table.name}-${col0.name}`];
+                                if (pos) {
+                                  return `${Math.abs(pos.angle).toFixed(2)} rad`;
+                                }
+                                return "0.25 rad";
+                              })()}
+                            </span>
+                          </div>
+                          <input
+                            type="range" min="0.05" max="1.0" step="0.01"
+                            value={(() => {
+                              const col0 = otherCols[0];
+                              const pos = attrPositions[`${table.name}-${col0.name}`];
+                              if (pos) {
+                                  return Math.abs(pos.angle);
+                              }
+                              return 0.25;
+                            })()}
+                            onChange={(e) => {
+                              const newSpacing = parseFloat(e.target.value);
+                              otherCols.forEach((col, idx) => {
+                                const key = `${table.name}-${col.name}`;
+                                const factor = idx % 2 === 0 ? 1 : -1;
+                                const step = Math.floor(idx / 2) + 1;
+                                const relAngle = newSpacing * factor * step;
+                                const current = attrPositions[key] || { angle: relAngle, radius: 85 + table.columns.length * 5 };
+                                setAttrPosition(key, { ...current, angle: relAngle });
+                              });
+                            }}
+                            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                          />
+                        </div>
+                      );
+                    })()}
+                  </div>
                 ) : (
-                  <p className="text-[10px] text-zinc-500 italic">Tap an attribute to edit its orbit and radius.</p>
+                  <p className="text-[10px] text-zinc-500 italic">Tap an entity or attribute to edit its orbit layout.</p>
                 )}
               </div>
             )}
@@ -2888,8 +3059,10 @@ export default function DrawioPreview() {
                         {/* LAYER 2: Entity boxes + orbiting attributes */}
                         {layout.nodes.map((node) => {
                           const table = node.table;
-                          const cx = node.x + node.width / 2;
-                          const cy = node.y + node.height / 2;
+                          const entityCx = node.x + node.width / 2;
+                          const entityCy = node.y + node.height / 2;
+                          const cx = entityCx;
+                          const cy = entityCy;
                           const N = table.columns.length;
                           const isEntitySelected =
                             selectedEntityName === table.name;
@@ -2899,32 +3072,62 @@ export default function DrawioPreview() {
                             ),
                           );
 
+                          const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
+                          const pkIdx = table.columns.findIndex((c) => c.name === pkCol.name);
+                          const pkKey = `${table.name}-${pkCol.name}`;
+                          const pkDefaultAngle = (2 * Math.PI * pkIdx) / N;
+                          const pkDefaultRadius = 85 + N * 5;
+                          const pkPos = attrPositions[pkKey] || { angle: pkDefaultAngle, radius: pkDefaultRadius };
+                          const pkX = entityCx + pkPos.radius * Math.cos(pkPos.angle);
+                          const pkY = entityCy + pkPos.radius * Math.sin(pkPos.angle);
+
+                          const otherCols = table.columns.filter((c) => c.name !== pkCol.name);
+
                           const attrs = table.columns.map((col, idx) => {
+                            const isPk = col.name === pkCol.name;
                             const key = `${table.name}-${col.name}`;
-                            const defaultAngle = (2 * Math.PI * idx) / N;
-                            const defaultRadius = 85 + N * 5;
-                            const pos = attrPositions[key] || {
-                              angle: defaultAngle,
-                              radius: defaultRadius,
-                            };
                             const w_attr = Math.max(
                               60,
                               col.name.length * 8 + 16,
                             );
                             const h_attr = 30;
-                            return {
-                              col,
-                              key,
-                              width: w_attr,
-                              height: h_attr,
-                              angle: pos.angle,
-                              radius: pos.radius,
-                              x: cx + pos.radius * Math.cos(pos.angle),
-                              y: cy + pos.radius * Math.sin(pos.angle),
-                            };
+
+                            if (isPk) {
+                              return {
+                                col,
+                                key,
+                                width: w_attr,
+                                height: h_attr,
+                                angle: pkPos.angle,
+                                radius: pkPos.radius,
+                                x: pkX,
+                                y: pkY,
+                              };
+                            } else {
+                              const otherIdx = otherCols.findIndex((c) => c.name === col.name);
+                              const factor = otherIdx % 2 === 0 ? 1 : -1;
+                              const step = Math.floor(otherIdx / 2) + 1;
+                              const defaultRelativeAngle = 0.25 * factor * step;
+                              const defaultRadius = 85 + N * 5;
+                              const pos = attrPositions[key] || {
+                                angle: defaultRelativeAngle,
+                                radius: defaultRadius,
+                              };
+                              const absoluteAngle = pkPos.angle + pos.angle;
+                              return {
+                                col,
+                                key,
+                                width: w_attr,
+                                height: h_attr,
+                                angle: pos.angle,
+                                radius: pos.radius,
+                                x: entityCx + pos.radius * Math.cos(absoluteAngle),
+                                y: entityCy + pos.radius * Math.sin(absoluteAngle),
+                              };
+                            }
                           });
 
-                          resolveCollisions(attrs, cx, cy, allSegments);
+                          resolveCollisions(attrs, entityCx, entityCy, allSegments);
 
                           const selectedAttrInTable =
                             selectedAttr &&
@@ -2981,8 +3184,8 @@ export default function DrawioPreview() {
                             >
                               {selectedAttrInTable && (
                                 <circle
-                                  cx={cx}
-                                  cy={cy}
+                                  cx={entityCx}
+                                  cy={entityCy}
                                   r={selectedAttrInTable.radius}
                                   fill="none"
                                   stroke="#2563eb"
@@ -2995,8 +3198,8 @@ export default function DrawioPreview() {
                               {attrs.map((item) => (
                                 <line
                                   key={`line_${item.col.name}`}
-                                  x1={cx}
-                                  y1={cy}
+                                  x1={entityCx}
+                                  y1={entityCy}
                                   x2={item.x}
                                   y2={item.y}
                                   stroke={
@@ -4321,11 +4524,11 @@ export default function DrawioPreview() {
                                 const table = node.table;
                                 if (childTables.has(table.name)) return null;
 
+                                const cx = node.x + node.width / 2;
+                                const cy = node.y + node.height / 2;
                                 const numCols = table.columns.length;
                                 const boxWidth = 160;
                                 const boxHeight = 40 + 15 + numCols * 20 + 15;
-                                const cx = node.x + node.width / 2;
-                                const cy = node.y + node.height / 2;
                                 const bx = cx - boxWidth / 2;
                                 const by = cy - boxHeight / 2;
 

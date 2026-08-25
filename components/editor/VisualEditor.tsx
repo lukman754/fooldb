@@ -13,6 +13,7 @@ import {
   Link,
   Unlink,
   Code,
+  Search,
   Copy,
   ChevronDown,
   ChevronUp,
@@ -24,22 +25,145 @@ const COLUMN_TYPES = [
   "BIGINT",
   "SMALLINT",
   "TINYINT",
-  "VARCHAR(255)",
-  "VARCHAR(100)",
-  "CHAR(36)",
+  "VARCHAR",
+  "CHAR",
   "TEXT",
   "MEDIUMTEXT",
   "LONGTEXT",
   "BOOLEAN",
-  "TINYINT(1)",
-  "DECIMAL(10,2)",
+  "DECIMAL",
   "FLOAT",
   "DOUBLE",
   "DATE",
   "DATETIME",
   "TIMESTAMP",
   "JSON",
+  "ENUM",
 ];
+
+function splitType(typeStr: string) {
+  const match = typeStr.trim().match(/^(\w+)(?:\s*\(([^)]+)\))?/i);
+  if (!match) return { baseType: "INT", lengthOrValues: "11" };
+  const baseType = match[1].toUpperCase();
+  const lengthOrValues = match[2] ? match[2].trim() : "";
+  return { baseType, lengthOrValues };
+}
+
+function joinType(baseType: string, lengthOrValues: string) {
+  const trimmed = lengthOrValues.trim();
+  if (trimmed) {
+    return `${baseType}(${trimmed})`;
+  }
+  return baseType;
+}
+
+function parseEnumValues(enumStr: string): string[] {
+  if (!enumStr.trim()) return [];
+  const values: string[] = [];
+  const matches = enumStr.match(/'([^'\\]*(?:\\.[^'\\]*)*)'/g);
+  if (matches) {
+    matches.forEach((m) => {
+      values.push(m.slice(1, -1).replace(/\\'/g, "'"));
+    });
+  } else {
+    return enumStr.split(",").map((s) => s.trim().replace(/^['"]|['"]$/g, ""));
+  }
+  return values;
+}
+
+function formatEnumValues(values: string[]): string {
+  return values
+    .map((v) => `'${v.replace(/'/g, "\\'")}'`)
+    .join(", ");
+}
+
+function EnumModal({
+  initialValues,
+  onSave,
+  onClose,
+}: {
+  initialValues: string[];
+  onSave: (values: string[]) => void;
+  onClose: () => void;
+}) {
+  const [values, setValues] = useState<string[]>(initialValues.length > 0 ? initialValues : [""]);
+
+  const handleAdd = () => {
+    setValues([...values, ""]);
+  };
+
+  const handleRemove = (idx: number) => {
+    setValues(values.filter((_, i) => i !== idx));
+  };
+
+  const handleChange = (idx: number, val: string) => {
+    setValues(values.map((v, i) => i === idx ? val : v));
+  };
+
+  const handleSave = () => {
+    const filtered = values.map(v => v.trim()).filter(Boolean);
+    onSave(filtered);
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/75 backdrop-blur-sm"
+      style={{ zIndex: 9999 }}
+    >
+      <div className="w-80 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl p-4 flex flex-col gap-3 max-h-[70vh]">
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+          <span className="text-xs font-semibold text-zinc-100 font-sans text-left">Edit Enum Values</span>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[40vh] scrollbar-mini">
+          {values.map((val, idx) => (
+            <div key={idx} className="flex items-center gap-1.5">
+              <input
+                value={val}
+                onChange={(e) => handleChange(idx, e.target.value)}
+                placeholder={`Value ${idx + 1}`}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 px-2 py-1 outline-none focus:border-blue-500 font-sans"
+              />
+              <button
+                onClick={() => handleRemove(idx)}
+                className="p-1.5 rounded text-zinc-500 hover:text-red-400 hover:bg-zinc-800 transition"
+                title="Remove value"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+        
+        <button
+          onClick={handleAdd}
+          className="flex items-center justify-center gap-1.5 w-full rounded border border-dashed border-zinc-700 py-1.5 text-xs text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition font-sans"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add Value
+        </button>
+        
+        <div className="flex items-center gap-2 border-t border-zinc-800 pt-2.5 mt-1 font-sans">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded border border-zinc-700 bg-zinc-800 py-1.5 text-xs text-zinc-300 hover:bg-zinc-700 transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex-1 rounded bg-blue-600 py-1.5 text-xs font-medium text-white hover:bg-blue-500 transition"
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ────────────────────────────────────────────────
 // Inline Editable Label
@@ -126,6 +250,17 @@ function ColumnRow({
     setLocalName(col.name);
   }, [col.name]);
 
+  // Split the type dynamically for base type and length/values input
+  const { baseType, lengthOrValues } = splitType(col.type);
+
+  // Local state for length/values input
+  const [localLength, setLocalLength] = useState(lengthOrValues);
+  useEffect(() => {
+    setLocalLength(lengthOrValues);
+  }, [lengthOrValues]);
+
+  const [showEnumModal, setShowEnumModal] = useState(false);
+
   // Auto-focus & select-all when this row is newly created
   useEffect(() => {
     if (autoFocus && inputRef.current) {
@@ -140,6 +275,28 @@ function ColumnRow({
     if (trimmed && trimmed !== col.name) onUpdate({ name: trimmed });
     else setLocalName(col.name); // revert if empty
   }, [localName, col.name, onUpdate]);
+
+  const handleTypeChange = (newBase: string) => {
+    let newLen = lengthOrValues;
+    if (!newLen) {
+      if (newBase === "INT") newLen = "11";
+      else if (newBase === "VARCHAR") newLen = "255";
+      else if (newBase === "ENUM") newLen = "'value1', 'value2'";
+    }
+    onUpdate({ type: joinType(newBase, newLen) });
+  };
+
+  const commitLength = () => {
+    const trimmed = localLength.trim();
+    if (trimmed !== lengthOrValues) {
+      onUpdate({ type: joinType(baseType, trimmed) });
+    }
+  };
+
+  const showLengthInput = [
+    "INT", "BIGINT", "SMALLINT", "TINYINT",
+    "VARCHAR", "CHAR", "DECIMAL", "ENUM"
+  ].includes(baseType);
 
   return (
     <div className="group flex items-center gap-1.5 px-2 py-1 rounded hover:bg-zinc-800/60 transition-colors">
@@ -167,12 +324,12 @@ function ColumnRow({
         className="flex-1 min-w-0 bg-transparent text-[11px] text-zinc-300 border-b border-transparent hover:border-zinc-600 focus:border-blue-500 outline-none py-0.5 disabled:cursor-not-allowed disabled:opacity-60 font-mono"
       />
 
-      {/* Type — instant update (click, no focus issue) */}
+      {/* Type select */}
       <select
-        value={col.type}
-        onChange={(e) => onUpdate({ type: e.target.value })}
+        value={baseType}
+        onChange={(e) => handleTypeChange(e.target.value)}
         disabled={isLocked}
-        className="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-400 px-1 py-0.5 outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed max-w-[110px]"
+        className="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-400 px-1 py-0.5 outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed w-20"
       >
         {COLUMN_TYPES.map((t) => (
           <option key={t} value={t}>
@@ -180,6 +337,48 @@ function ColumnRow({
           </option>
         ))}
       </select>
+
+      {/* Length/Values input */}
+      {showLengthInput ? (
+        baseType === "ENUM" ? (
+          <>
+            <button
+              onClick={() => setShowEnumModal(true)}
+              disabled={isLocked}
+              className="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 px-1.5 py-0.5 outline-none hover:border-zinc-500 hover:text-zinc-100 disabled:opacity-60 disabled:cursor-not-allowed w-16 text-left truncate font-mono"
+              title={`Click to edit enum values: ${lengthOrValues}`}
+            >
+              {lengthOrValues ? lengthOrValues : "values"}
+            </button>
+            {showEnumModal && (
+              <EnumModal
+                initialValues={parseEnumValues(lengthOrValues)}
+                onSave={(newValues) => {
+                  const enumStr = formatEnumValues(newValues);
+                  onUpdate({ type: joinType("ENUM", enumStr) });
+                }}
+                onClose={() => setShowEnumModal(false)}
+              />
+            )}
+          </>
+        ) : (
+          <input
+            value={localLength}
+            onChange={(e) => setLocalLength(e.target.value)}
+            onBlur={commitLength}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.currentTarget.blur();
+              }
+            }}
+            disabled={isLocked}
+            placeholder="Length"
+            className="bg-zinc-800 border border-zinc-700 rounded text-[10px] text-zinc-300 px-1.5 py-0.5 outline-none focus:border-blue-500 disabled:opacity-60 disabled:cursor-not-allowed w-16 font-mono placeholder:text-zinc-600"
+          />
+        )
+      ) : (
+        <div className="w-16" />
+      )}
 
       {/* Toggles — instant update (click, no focus issue) */}
       <div className="flex items-center gap-1">
@@ -597,16 +796,37 @@ function SqlExportModal({
 // Main VisualEditor Panel
 // ────────────────────────────────────────────────
 export default function VisualEditor() {
-  const { visualSchema, addVisualTable } = useDbStore();
+  const {
+    visualSchema,
+    addVisualTable,
+    schema,
+    importSqlToVisual,
+    clearVisualSchema,
+    selectedEntityName,
+    setSelectedEntityName,
+  } = useDbStore();
   const [newTableName, setNewTableName] = useState("");
   const [showAddInput, setShowAddInput] = useState(false);
   const [openFkTable, setOpenFkTable] = useState<string | null>(null);
   const [showSqlModal, setShowSqlModal] = useState(false);
+  const [showActionsDropdown, setShowActionsDropdown] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const tableCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
     if (showAddInput) inputRef.current?.focus();
   }, [showAddInput]);
+
+  // Scroll selected entity card into view when selectedEntityName changes (from canvas click)
+  useEffect(() => {
+    if (selectedEntityName && tableCardRefs.current[selectedEntityName]) {
+      tableCardRefs.current[selectedEntityName]?.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }
+  }, [selectedEntityName]);
 
   const handleAddTable = () => {
     if (newTableName.trim()) {
@@ -635,16 +855,72 @@ export default function VisualEditor() {
           </span>
         </div>
 
-        {/* Export SQL */}
-        {visualSchema.tables.length > 0 && (
+        {/* Actions Dropdown */}
+        <div className="relative">
           <button
-            onClick={() => setShowSqlModal(true)}
+            onClick={() => setShowActionsDropdown(!showActionsDropdown)}
             className="flex items-center gap-1.5 rounded-md border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[10px] font-medium text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
           >
-            <Code className="h-3 w-3 text-blue-400" />
-            Export SQL
+            Actions
+            <ChevronDown className="h-3 w-3 text-zinc-400" />
           </button>
-        )}
+          
+          {showActionsDropdown && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowActionsDropdown(false)}
+              />
+              <div className="absolute right-0 top-full mt-1 w-44 rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-lg z-50 flex flex-col gap-0.5">
+                {schema.tables.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setShowActionsDropdown(false);
+                      if (
+                        visualSchema.tables.length === 0 ||
+                        confirm("Importing SQL will overwrite your current visual builder schema. Continue?")
+                      ) {
+                        importSqlToVisual();
+                      }
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+                  >
+                    <Database className="h-3.5 w-3.5 text-blue-400 shrink-0" />
+                    Import SQL
+                  </button>
+                )}
+                
+                {visualSchema.tables.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setShowActionsDropdown(false);
+                      setShowSqlModal(true);
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 transition-colors"
+                  >
+                    <Code className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                    Export SQL
+                  </button>
+                )}
+                
+                {visualSchema.tables.length > 0 && (
+                  <button
+                    onClick={() => {
+                      setShowActionsDropdown(false);
+                      if (confirm("Are you sure you want to clear all tables and start from scratch?")) {
+                        clearVisualSchema();
+                      }
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-red-400 hover:bg-red-950/40 hover:text-red-300 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                    Clear All
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Add Table */}
         <button
@@ -655,6 +931,24 @@ export default function VisualEditor() {
           Add Table
         </button>
       </div>
+
+      {/* Search Bar */}
+      {visualSchema.tables.length > 0 && (
+        <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5 bg-zinc-950 shrink-0">
+          <Search className="h-3 w-3 text-zinc-500 shrink-0" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search tables..."
+            className="flex-1 bg-transparent text-[11px] text-zinc-300 outline-none placeholder-zinc-600"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery("")} className="text-zinc-600 hover:text-zinc-300">
+              <X className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Add Table Input */}
       {showAddInput && (
@@ -717,19 +1011,37 @@ export default function VisualEditor() {
             </button>
           </div>
         ) : (
-          visualSchema.tables.map((table) => (
-            <TableCard
-              key={table.name}
-              tableName={table.name}
-              onAddTable={() => setShowAddInput(true)}
-              isFkMenuOpen={openFkTable === table.name}
-              onToggleFkMenu={() =>
-                setOpenFkTable((current) =>
-                  current === table.name ? null : table.name,
-                )
-              }
-            />
-          ))
+          visualSchema.tables
+            .filter((table) =>
+              !searchQuery ||
+              table.name.toLowerCase().includes(searchQuery.toLowerCase())
+            )
+            .map((table) => {
+              const isSelected = selectedEntityName === table.name;
+              return (
+                <div
+                  key={table.name}
+                  ref={(el) => { tableCardRefs.current[table.name] = el; }}
+                  onClick={() => setSelectedEntityName(table.name)}
+                  className={`cursor-pointer rounded-xl border transition-all ${
+                    isSelected
+                      ? "border-blue-500/60 ring-1 ring-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.12)]"
+                      : "border-transparent"
+                  }`}
+                >
+                  <TableCard
+                    tableName={table.name}
+                    onAddTable={() => setShowAddInput(true)}
+                    isFkMenuOpen={openFkTable === table.name}
+                    onToggleFkMenu={() =>
+                      setOpenFkTable((current) =>
+                        current === table.name ? null : table.name,
+                      )
+                    }
+                  />
+                </div>
+              );
+            })
         )}
       </div>
 
