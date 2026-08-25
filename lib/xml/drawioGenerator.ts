@@ -1,13 +1,13 @@
-import { LayoutData, Column } from '@/types';
+import { LayoutData, Column } from "@/types";
 
 // Helper to escape XML characters
 function escapeXml(unsafe: string): string {
   return unsafe
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 // Maps Indonesian/English HR & Payroll relations to match hand-drawn schemas
@@ -16,49 +16,87 @@ export function getRelationshipLabel(source: string, target: string): string {
   const t = target.toLowerCase();
 
   // Exact mappings from the Indonesian schema
-  if (s === 'payroll' && t === 'salary_slips') return 'Menghasilkan';
-  if (s === 'payroll' && t === 'payroll_details') return 'Memiliki';
-  if (s === 'payroll' && t === 'employees') return 'Menerima';
-  if (s === 'attendance' && t === 'employees') return 'Melakukan';
-  if (s === 'qr_scan_logs' && t === 'qr_codes') return 'Tercatat';
-  if (s === 'qr_scan_logs' && t === 'employees') return 'Melakukan Pemindaian';
-  if (s === 'employees' && t === 'positions') return 'Menerima';
-  if (s === 'employees' && t === 'leave_requests') return 'Mengajukan';
-  if (s === 'employees' && t === 'payroll') return 'Menerima';
-  if (s === 'employees' && t === 'overtime') return 'Melakukan';
-  if (s === 'employees' && t === 'attendance') return 'Melakukan';
-  if (s === 'positions' && t === 'employees') return 'Dimiliki oleh';
-  if (s === 'office_locations' && t === 'qr_codes') return 'Menyediakan';
-  if (s === 'users' && t === 'leave_requests') return 'Menyetujui<div>/ Menolak</div>';
-  if (s === 'users' && t === 'overtime') return 'Menambahkan';
-  if (s === 'leave_requests' && t === 'users') return 'Menyetujui<div>/ Menolak</div>';
-  if (s === 'overtime' && t === 'users') return 'Menambahkan';
-  if (s === 'leave_requests' && t === 'employees') return 'Mengajukan';
-  if (s === 'overtime' && t === 'employees') return 'Melakukan';
-  if (s === 'attendance' && t === 'qr_codes') return 'Digunakan';
+  if (s === "payroll" && t === "salary_slips") return "Menghasilkan";
+  if (s === "payroll" && t === "payroll_details") return "Memiliki";
+  if (s === "payroll" && t === "employees") return "Menerima";
+  if (s === "attendance" && t === "employees") return "Melakukan";
+  if (s === "qr_scan_logs" && t === "qr_codes") return "Tercatat";
+  if (s === "qr_scan_logs" && t === "employees") return "Melakukan Pemindaian";
+  if (s === "employees" && t === "positions") return "Menerima";
+  if (s === "employees" && t === "leave_requests") return "Mengajukan";
+  if (s === "employees" && t === "payroll") return "Menerima";
+  if (s === "employees" && t === "overtime") return "Melakukan";
+  if (s === "employees" && t === "attendance") return "Melakukan";
+  if (s === "positions" && t === "employees") return "Dimiliki oleh";
+  if (s === "office_locations" && t === "qr_codes") return "Menyediakan";
+  if (s === "users" && t === "leave_requests")
+    return "Menyetujui<div>/ Menolak</div>";
+  if (s === "users" && t === "overtime") return "Menambahkan";
+  if (s === "leave_requests" && t === "users")
+    return "Menyetujui<div>/ Menolak</div>";
+  if (s === "overtime" && t === "users") return "Menambahkan";
+  if (s === "leave_requests" && t === "employees") return "Mengajukan";
+  if (s === "overtime" && t === "employees") return "Melakukan";
+  if (s === "attendance" && t === "qr_codes") return "Digunakan";
 
   // Fallbacks
-  if (s === 'users' && t === 'profiles') return 'Memiliki';
-  if (s === 'users' && t === 'employees') return 'Memiliki Profil';
-  if (s === 'users' && t === 'orders') return 'Membuat';
-  if (s === 'orders' && t === 'order_items') return 'Memiliki';
-  if (s === 'products' && t === 'order_items') return 'Dipesan';
-  
-  return 'Memiliki';
+  if (s === "users" && t === "profiles") return "Memiliki";
+  if (s === "users" && t === "employees") return "Memiliki Profil";
+  if (s === "users" && t === "orders") return "Membuat";
+  if (s === "orders" && t === "order_items") return "Memiliki";
+  if (s === "products" && t === "order_items") return "Dipesan";
+
+  return "Memiliki";
 }
 
 export function generateDrawioXml(
   layoutData: LayoutData,
   attrPositions?: { [key: string]: { angle: number; radius: number } },
-  relNotation: 'crowsfoot' | 'label' = 'crowsfoot'
+  relNotation: "crowsfoot" | "label" = "crowsfoot",
+  relPositions: { [key: string]: { x: number; y: number } } = {},
+  customWaypoints: {
+    [key: string]: {
+      sourceWaypoints?: { x: number; y: number }[];
+      targetWaypoints?: { x: number; y: number }[];
+    };
+  } = {},
+  frameName = "Diagram",
 ): string {
   let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
   xml += '<mxfile host="app.diagrams.net">\n';
   xml += '  <diagram name="Page-1" id="gHxV2qfAr26GcpHgv2kp">\n';
-  xml += '    <mxGraphModel dx="2119" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">\n';
-  xml += '      <root>\n';
+  xml +=
+    '    <mxGraphModel dx="2119" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">\n';
+  xml += "      <root>\n";
   xml += '        <mxCell id="0" />\n';
   xml += '        <mxCell id="1" parent="0" />\n';
+
+  // Keep the export frame behind all diagram cells and include orbit space.
+  const framePadding = 32;
+  const frameBounds = layoutData.nodes.reduce(
+    (bounds, node) => {
+      const cx = node.x + node.width / 2;
+      const cy = node.y + node.height / 2;
+      const radius = 85 + node.table.columns.length * 5;
+      return {
+        minX: Math.min(bounds.minX, cx - radius - 80),
+        minY: Math.min(bounds.minY, cy - radius - 60),
+        maxX: Math.max(bounds.maxX, cx + radius + 80),
+        maxY: Math.max(bounds.maxY, cy + radius + 60),
+      };
+    },
+    { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity },
+  );
+  if (layoutData.nodes.length > 0) {
+    const frameX = frameBounds.minX - framePadding;
+    const frameY = frameBounds.minY - framePadding;
+    const frameWidth = frameBounds.maxX - frameBounds.minX + framePadding * 2;
+    const frameHeight = frameBounds.maxY - frameBounds.minY + framePadding * 2;
+    const escapedFrameName = escapeXml(frameName.trim() || "Diagram");
+    xml += `        <mxCell id="diagram_frame" parent="1" style="rounded=0;arcSize=0;whiteSpace=wrap;html=1;dashed=1;fillColor=none;strokeColor=#52525b;fontColor=#d4d4d8;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;" value="${escapedFrameName}" vertex="1">\n`;
+    xml += `          <mxGeometry x="${frameX.toFixed(1)}" y="${frameY.toFixed(1)}" width="${frameWidth.toFixed(1)}" height="${frameHeight.toFixed(1)}" as="geometry" />\n`;
+    xml += "        </mxCell>\n";
+  }
 
   // 1. Generate Entity Tables (Rounded Rectangles) & Attributes (Ellipses Orbiting)
   for (const node of layoutData.nodes) {
@@ -67,8 +105,9 @@ export function generateDrawioXml(
     const escapedTableName = escapeXml(table.name);
 
     // Entity Box Style (rounded rectangle)
-    const tableStyle = 'rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=center;fillColor=#1e293b;strokeColor=#475569;fontColor=#f8fafc;strokeWidth=1.5;';
-    
+    const tableStyle =
+      "rounded=1;arcSize=10;whiteSpace=wrap;html=1;align=center;fillColor=#1e293b;strokeColor=#475569;fontColor=#f8fafc;strokeWidth=1.5;";
+
     const cx = node.x + node.width / 2;
     const cy = node.y + node.height / 2;
     const tx = cx - 60;
@@ -76,17 +115,40 @@ export function generateDrawioXml(
 
     xml += `        <mxCell id="${tableId}" parent="1" style="${tableStyle}" value="${escapedTableName}" vertex="1">\n`;
     xml += `          <mxGeometry x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" width="120" height="45" as="geometry" />\n`;
-    xml += '        </mxCell>\n';
+    xml += "        </mxCell>\n";
 
     // Calculate orbiting positions for attributes
     const N = table.columns.length;
 
     // 1. Build initial list of attribute positions
-    const attrs = table.columns.map((col, idx) => {
+    const pkCol =
+      table.columns.find((col) => col.isPrimaryKey) || table.columns[0];
+    const pkIdx = table.columns.findIndex((col) => col.name === pkCol.name);
+    const pkKey = `${table.name}-${pkCol.name}`;
+    const pkDefaultAngle = (2 * Math.PI * pkIdx) / N;
+    const pkDefaultRadius = 85 + N * 5;
+    const pkPos = attrPositions?.[pkKey] || {
+      angle: pkDefaultAngle,
+      radius: pkDefaultRadius,
+    };
+    const otherCols = table.columns.filter((col) => col.name !== pkCol.name);
+
+    const attrs = table.columns.map((col) => {
       const key = `${table.name}-${col.name}`;
-      const defaultAngle = (2 * Math.PI * idx) / N;
-      const defaultRadius = 85 + N * 5;
-      const pos = (attrPositions && attrPositions[key]) || { angle: defaultAngle, radius: defaultRadius };
+      const isPk = col.name === pkCol.name;
+      const otherIdx = otherCols.findIndex((item) => item.name === col.name);
+      const factor = otherIdx % 2 === 0 ? 1 : -1;
+      const step = Math.floor(otherIdx / 2) + 1;
+      const defaultRelativeAngle = 0.25 * factor * step;
+      const defaultAngle = isPk
+        ? pkDefaultAngle
+        : pkPos.angle + defaultRelativeAngle;
+      const defaultRadius = isPk ? pkDefaultRadius : 85 + N * 5;
+      const pos = attrPositions?.[key] || {
+        angle: isPk ? defaultAngle : defaultRelativeAngle,
+        radius: defaultRadius,
+      };
+      const absoluteAngle = isPk ? pos.angle : pkPos.angle + pos.angle;
       const w_attr = Math.max(60, col.name.length * 8 + 16);
       const h_attr = 30;
 
@@ -97,8 +159,8 @@ export function generateDrawioXml(
         height: h_attr,
         angle: pos.angle,
         radius: pos.radius,
-        x: cx + pos.radius * Math.cos(pos.angle),
-        y: cy + pos.radius * Math.sin(pos.angle)
+        x: cx + pos.radius * Math.cos(absoluteAngle),
+        y: cy + pos.radius * Math.sin(absoluteAngle),
       };
     });
 
@@ -114,7 +176,7 @@ export function generateDrawioXml(
       const ay = item.y - item.height / 2;
 
       // Primary Key: Italic + Underlined, otherwise Normal
-      let label = '';
+      let label = "";
       if (col.isPrimaryKey) {
         label = escapeXml(`<u><i>${col.name}</i></u>`);
       } else {
@@ -123,19 +185,20 @@ export function generateDrawioXml(
 
       // Attribute ellipse style (Gold stroke for PK, slate/zinc for normal)
       const attrStyle = col.isPrimaryKey
-        ? 'ellipse;whiteSpace=wrap;html=1;align=center;fontStyle=6;fillColor=#1e293b;strokeColor=#eab308;fontColor=#f8fafc;strokeWidth=1.5;'
-        : 'ellipse;whiteSpace=wrap;html=1;align=center;fillColor=#0f172a;strokeColor=#475569;fontColor=#94a3b8;';
+        ? "ellipse;whiteSpace=wrap;html=1;align=center;fontStyle=6;fillColor=#1e293b;strokeColor=#eab308;fontColor=#f8fafc;strokeWidth=1.5;"
+        : "ellipse;whiteSpace=wrap;html=1;align=center;fillColor=#0f172a;strokeColor=#475569;fontColor=#94a3b8;";
 
       // 1a. Attribute Cell (Ellipse)
       xml += `        <mxCell id="${colId}" parent="1" style="${attrStyle}" value="${label}" vertex="1">\n`;
       xml += `          <mxGeometry x="${ax.toFixed(1)}" y="${ay.toFixed(1)}" width="${item.width}" height="${item.height}" as="geometry" />\n`;
-      xml += '        </mxCell>\n';
+      xml += "        </mxCell>\n";
 
       // 1b. Connection Edge from Table to Attribute (Simple solid line)
-      const edgeColStyle = 'rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;strokeColor=#334155;strokeWidth=1;';
+      const edgeColStyle =
+        "rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=none;endFill=0;strokeColor=#334155;strokeWidth=1;";
       xml += `        <mxCell id="${edgeColId}" edge="1" parent="1" source="${tableId}" style="${edgeColStyle}" target="${colId}">\n`;
       xml += '          <mxGeometry relative="1" as="geometry" />\n';
-      xml += '        </mxCell>\n';
+      xml += "        </mxCell>\n";
     }
   }
 
@@ -167,11 +230,20 @@ export function generateDrawioXml(
   };
 
   const diamonds = layoutData.edges.map((edge) => {
-    return { edge, rel: edge.relationship, t: 0.5, x: 0, y: 0, width: 120, height: 45 };
+    return {
+      edge,
+      rel: edge.relationship,
+      t: 0.5,
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 45,
+    };
   });
 
   diamonds.forEach((d) => {
-    const pt = pointAtT(d.edge.points, d.t);
+    const customPos = relPositions[d.rel.id];
+    const pt = customPos || pointAtT(d.edge.points, d.t);
     d.x = pt.x;
     d.y = pt.y;
   });
@@ -193,8 +265,10 @@ export function generateDrawioXml(
           b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
           const ptA = pointAtT(a.edge.points, a.t);
           const ptB = pointAtT(b.edge.points, b.t);
-          a.x = ptA.x; a.y = ptA.y;
-          b.x = ptB.x; b.y = ptB.y;
+          a.x = ptA.x;
+          a.y = ptA.y;
+          b.x = ptB.x;
+          b.y = ptB.y;
         }
       }
     }
@@ -212,7 +286,7 @@ export function generateDrawioXml(
 
     const pts = edge.points;
     const len = pts.length;
-    
+
     // Find segment containing the diamond
     const totalDist = d.t * polyLength(pts);
     let currentDist = 0;
@@ -228,38 +302,44 @@ export function generateDrawioXml(
       currentDist += segLen;
     }
 
-    const edge1Pts = pts.slice(1, diamondSegIdx);
-    const edge2Pts = pts.slice(diamondSegIdx, -1);
+    const edgeWaypoints = customWaypoints[edge.id];
+    const edge1Pts = edgeWaypoints?.sourceWaypoints?.length
+      ? edgeWaypoints.sourceWaypoints
+      : pts.slice(1, diamondSegIdx);
+    const edge2Pts = edgeWaypoints?.targetWaypoints?.length
+      ? edgeWaypoints.targetWaypoints
+      : pts.slice(diamondSegIdx, -1);
 
-    if (relNotation === 'label') {
+    if (relNotation === "label") {
       const edge1Style = [
-        'edgeStyle=orthogonalEdgeStyle',
-        'rounded=0',
-        'orthogonalLoop=1',
-        'jettySize=auto',
-        'html=1',
-        'endArrow=none',
-        'startArrow=none',
-        'strokeColor=#6366f1',
-        'strokeWidth=1.5',
-        'jumpStyle=arc'
-      ].join(';');
+        "edgeStyle=orthogonalEdgeStyle",
+        "rounded=0",
+        "orthogonalLoop=1",
+        "jettySize=auto",
+        "html=1",
+        "endArrow=none",
+        "startArrow=none",
+        "strokeColor=#6366f1",
+        "strokeWidth=1.5",
+        "jumpStyle=arc",
+      ].join(";");
 
       const edge2Style = [
-        'edgeStyle=orthogonalEdgeStyle',
-        'rounded=0',
-        'orthogonalLoop=1',
-        'jettySize=auto',
-        'html=1',
-        'endArrow=none',
-        'startArrow=none',
-        'strokeColor=#6366f1',
-        'strokeWidth=1.5',
-        'jumpStyle=arc'
-      ].join(';');
+        "edgeStyle=orthogonalEdgeStyle",
+        "rounded=0",
+        "orthogonalLoop=1",
+        "jettySize=auto",
+        "html=1",
+        "endArrow=none",
+        "startArrow=none",
+        "strokeColor=#6366f1",
+        "strokeWidth=1.5",
+        "jumpStyle=arc",
+      ].join(";");
 
-      const srcLabel = '1';
-      const tgtLabel = rel.type === 'M:N' ? 'N' : rel.type === '1:N' ? 'N' : '1';
+      const srcLabel = "1";
+      const tgtLabel =
+        rel.type === "M:N" ? "N" : rel.type === "1:N" ? "N" : "1";
 
       // Edge 1: Table A -> Diamond
       xml += `        <mxCell id="${edgeId}_1" edge="1" parent="1" source="${sourceTableId}" style="${edge1Style}" target="${diamondId}">\n`;
@@ -269,10 +349,10 @@ export function generateDrawioXml(
         for (const pt of edge1Pts) {
           xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
         }
-        xml += '            </Array>\n';
+        xml += "            </Array>\n";
       }
-      xml += '          </mxGeometry>\n';
-      xml += '        </mxCell>\n';
+      xml += "          </mxGeometry>\n";
+      xml += "        </mxCell>\n";
 
       // Edge 2: Diamond -> Table B
       xml += `        <mxCell id="${edgeId}_2" edge="1" parent="1" source="${diamondId}" style="${edge2Style}" target="${targetTableId}">\n`;
@@ -282,50 +362,50 @@ export function generateDrawioXml(
         for (const pt of edge2Pts) {
           xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
         }
-        xml += '            </Array>\n';
+        xml += "            </Array>\n";
       }
-      xml += '          </mxGeometry>\n';
-      xml += '        </mxCell>\n';
+      xml += "          </mxGeometry>\n";
+      xml += "        </mxCell>\n";
 
       // Source label child cell parented to Edge 1 (x="-1" near Table A)
       xml += `        <mxCell id="${edgeId}_src" value="${escapeXml(srcLabel)}" connectable="0" parent="${edgeId}_1" style="resizable=0;html=1;whiteSpace=wrap;align=left;verticalAlign=bottom;" vertex="1">\n`;
       xml += '          <mxGeometry relative="1" x="-1" as="geometry"/>\n';
-      xml += '        </mxCell>\n';
+      xml += "        </mxCell>\n";
 
       // Target label child cell parented to Edge 2 (x="1" near Table B)
       xml += `        <mxCell id="${edgeId}_tgt" value="${escapeXml(tgtLabel)}" connectable="0" parent="${edgeId}_2" style="resizable=0;html=1;whiteSpace=wrap;align=right;verticalAlign=bottom;" vertex="1">\n`;
       xml += '          <mxGeometry relative="1" x="1" as="geometry"/>\n';
-      xml += '        </mxCell>\n';
+      xml += "        </mxCell>\n";
     } else {
       // Crow's foot notation
       const edge1Style = [
-        'edgeStyle=orthogonalEdgeStyle',
-        'rounded=0',
-        'orthogonalLoop=1',
-        'jettySize=auto',
-        'html=1',
-        'startArrow=ERone',
-        'startFill=0',
-        'endArrow=none',
-        'strokeColor=#6366f1',
-        'strokeWidth=1.5',
-        'jumpStyle=arc'
-      ].join(';');
+        "edgeStyle=orthogonalEdgeStyle",
+        "rounded=0",
+        "orthogonalLoop=1",
+        "jettySize=auto",
+        "html=1",
+        "startArrow=ERone",
+        "startFill=0",
+        "endArrow=none",
+        "strokeColor=#6366f1",
+        "strokeWidth=1.5",
+        "jumpStyle=arc",
+      ].join(";");
 
-      const endArrow = rel.type === '1:1' ? 'ERone' : 'ERmany';
+      const endArrow = rel.type === "1:1" ? "ERone" : "ERmany";
       const edge2Style = [
-        'edgeStyle=orthogonalEdgeStyle',
-        'rounded=0',
-        'orthogonalLoop=1',
-        'jettySize=auto',
-        'html=1',
-        'startArrow=none',
+        "edgeStyle=orthogonalEdgeStyle",
+        "rounded=0",
+        "orthogonalLoop=1",
+        "jettySize=auto",
+        "html=1",
+        "startArrow=none",
         `endArrow=${endArrow}`,
-        'endFill=0',
-        'strokeColor=#6366f1',
-        'strokeWidth=1.5',
-        'jumpStyle=arc'
-      ].join(';');
+        "endFill=0",
+        "strokeColor=#6366f1",
+        "strokeWidth=1.5",
+        "jumpStyle=arc",
+      ].join(";");
 
       // Edge 1: Table A -> Diamond
       xml += `        <mxCell id="${edgeId}_1" edge="1" parent="1" source="${sourceTableId}" style="${edge1Style}" target="${diamondId}">\n`;
@@ -335,10 +415,10 @@ export function generateDrawioXml(
         for (const pt of edge1Pts) {
           xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
         }
-        xml += '            </Array>\n';
+        xml += "            </Array>\n";
       }
-      xml += '          </mxGeometry>\n';
-      xml += '        </mxCell>\n';
+      xml += "          </mxGeometry>\n";
+      xml += "        </mxCell>\n";
 
       // Edge 2: Diamond -> Table B
       xml += `        <mxCell id="${edgeId}_2" edge="1" parent="1" source="${diamondId}" style="${edge2Style}" target="${targetTableId}">\n`;
@@ -348,14 +428,16 @@ export function generateDrawioXml(
         for (const pt of edge2Pts) {
           xml += `              <mxPoint x="${pt.x.toFixed(1)}" y="${pt.y.toFixed(1)}" />\n`;
         }
-        xml += '            </Array>\n';
+        xml += "            </Array>\n";
       }
-      xml += '          </mxGeometry>\n';
-      xml += '        </mxCell>\n';
+      xml += "          </mxGeometry>\n";
+      xml += "        </mxCell>\n";
     }
 
     // 3. Generate Diamond Relationship Labels (Placed at edge midpoint)
-    const relLabel = rel.verb ? rel.verb : getRelationshipLabel(rel.sourceTable, rel.targetTable);
+    const relLabel = rel.verb
+      ? rel.verb
+      : getRelationshipLabel(rel.sourceTable, rel.targetTable);
     const escapedRelLabel = escapeXml(relLabel);
 
     const diamondWidth = 120;
@@ -363,17 +445,18 @@ export function generateDrawioXml(
     const dx = d.x - diamondWidth / 2;
     const dy = d.y - diamondHeight / 2;
 
-    const diamondStyle = 'shape=rhombus;perimeter=rhombusPerimeter;whiteSpace=wrap;html=1;align=center;fillColor=#0f172a;strokeColor=#6366f1;fontColor=#a5b4fc;strokeWidth=1.5;fontSize=10;';
+    const diamondStyle =
+      "shape=rhombus;perimeter=rhombusPerimeter;whiteSpace=wrap;html=1;align=center;fillColor=#0f172a;strokeColor=#6366f1;fontColor=#a5b4fc;strokeWidth=1.5;fontSize=10;";
 
     xml += `        <mxCell id="${diamondId}" parent="1" style="${diamondStyle}" value="${escapedRelLabel}" vertex="1">\n`;
     xml += `          <mxGeometry x="${dx.toFixed(1)}" y="${dy.toFixed(1)}" width="${diamondWidth}" height="${diamondHeight}" as="geometry" />\n`;
-    xml += '        </mxCell>\n';
+    xml += "        </mxCell>\n";
   }
 
-  xml += '      </root>\n';
-  xml += '    </mxGraphModel>\n';
-  xml += '  </diagram>\n';
-  xml += '</mxfile>';
+  xml += "      </root>\n";
+  xml += "    </mxGraphModel>\n";
+  xml += "  </diagram>\n";
+  xml += "</mxfile>";
 
   return xml;
 }
@@ -429,12 +512,18 @@ function resolveCollisions(attrs: AttrPosition[], cx: number, cy: number) {
 
           const dxA = a.x - cx;
           const dyA = a.y - cy;
-          a.radius = Math.max(50, Math.min(350, Math.sqrt(dxA * dxA + dyA * dyA)));
+          a.radius = Math.max(
+            50,
+            Math.min(350, Math.sqrt(dxA * dxA + dyA * dyA)),
+          );
           a.angle = Math.atan2(dyA, dxA);
 
           const dxB = b.x - cx;
           const dyB = b.y - cy;
-          b.radius = Math.max(50, Math.min(350, Math.sqrt(dxB * dxB + dyB * dyB)));
+          b.radius = Math.max(
+            50,
+            Math.min(350, Math.sqrt(dxB * dxB + dyB * dyB)),
+          );
           b.angle = Math.atan2(dyB, dxB);
         }
       }

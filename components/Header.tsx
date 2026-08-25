@@ -1,20 +1,24 @@
-'use client';
+"use client";
 
-import React, { useRef, useState, useEffect } from 'react';
-import Link from 'next/link';
-import { useDbStore, AppMode } from '@/store/dbStore';
-import { exportToSvg, exportToPng, downloadFile } from '@/lib/export/exportHelper';
-import { generateDrawioXml } from '@/lib/xml/drawioGenerator';
-import { generateLrsXml } from '@/lib/xml/lrsGenerator';
-import { generateTransformationXml } from '@/lib/xml/transformationGenerator';
-import { generateUseCaseXml } from '@/lib/xml/usecaseGenerator';
-import { generateClassXml } from '@/lib/xml/classGenerator';
-import { validateApiKey } from '@/lib/ai/geminiClient';
-import { DriveMenu, DriveMenuRef } from '@/components/DriveMenu';
-import { 
-  Database, 
-  Upload, 
-  Download, 
+import React, { useRef, useState, useEffect } from "react";
+import Link from "next/link";
+import { useDbStore, AppMode } from "@/store/dbStore";
+import {
+  exportToSvg,
+  exportToPng,
+  downloadFile,
+} from "@/lib/export/exportHelper";
+import { generateDrawioXml } from "@/lib/xml/drawioGenerator";
+import { generateLrsXml } from "@/lib/xml/lrsGenerator";
+import { generateTransformationXml } from "@/lib/xml/transformationGenerator";
+import { generateUseCaseXml } from "@/lib/xml/usecaseGenerator";
+import { generateClassXml } from "@/lib/xml/classGenerator";
+import { validateApiKey } from "@/lib/ai/geminiClient";
+import { DriveMenu, DriveMenuRef } from "@/components/DriveMenu";
+import {
+  Database,
+  Upload,
+  Download,
   FileJson,
   ChevronDown,
   Key,
@@ -23,11 +27,11 @@ import {
   LayoutGrid,
   X,
   RotateCcw,
-} from 'lucide-react';
+} from "lucide-react";
 
 const SQL_TEMPLATES = [
   {
-    name: 'E-commerce SQL Schema',
+    name: "E-commerce SQL Schema",
     code: `-- FoolDB E-commerce Sample Schema
 CREATE TABLE users (
   id INT AUTO_INCREMENT PRIMARY KEY,
@@ -75,10 +79,10 @@ CREATE TABLE order_items (
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT
 );
-`
+`,
   },
   {
-    name: 'WordPress Simplified SQL',
+    name: "WordPress Simplified SQL",
     code: `-- WordPress Simplified Schema
 CREATE TABLE wp_users (
   ID bigint(20) unsigned NOT NULL AUTO_INCREMENT,
@@ -107,13 +111,13 @@ CREATE TABLE wp_comments (
   PRIMARY KEY (comment_ID),
   FOREIGN KEY (comment_post_ID) REFERENCES wp_posts(ID)
 );
-`
-  }
+`,
+  },
 ];
 
 const USECASE_TEMPLATES = [
   {
-    name: 'E-commerce Use Case',
+    name: "E-commerce Use Case",
     code: `# E-commerce Use Case Diagram
 actor Customer
 actor Admin
@@ -130,10 +134,10 @@ Customer -> Manage Cart
 Customer -> Checkout Order
 Admin -> Manage Catalog
 Admin -> Process Shipments
-`
+`,
   },
   {
-    name: 'Hospital Management Use Case',
+    name: "Hospital Management Use Case",
     code: `# Hospital Management Use Case
 actor Patient
 actor Doctor
@@ -152,13 +156,13 @@ Receptionist -> Schedule Appointment
 Doctor -> Diagnose Disease
 Doctor -> Prescribe Medication
 Doctor -> Discharge Patient
-`
-  }
+`,
+  },
 ];
 
 const ACTIVITY_TEMPLATES = [
   {
-    name: 'Order Process Activity Flow',
+    name: "Order Process Activity Flow",
     code: `# Order Process Activity Flow
 start
 action checkout "Validate Checkout Cart"
@@ -173,10 +177,10 @@ check_stock -> adjust_stock : yes
 check_stock -> error_msg : no
 adjust_stock -> end
 error_msg -> end
-`
+`,
   },
   {
-    name: 'User Registration Flow',
+    name: "User Registration Flow",
     code: `# User Registration Flow
 start
 action fill_form "Fill in Registration Form"
@@ -191,13 +195,13 @@ check_email -> send_verification : yes
 check_email -> show_error : no
 send_verification -> end
 show_error -> fill_form
-`
-  }
+`,
+  },
 ];
 
 const SEQUENCE_TEMPLATES = [
   {
-    name: 'User Login Sequence',
+    name: "User Login Sequence",
     code: `# User Login Sequence
 object Customer "Customer User"
 object Browser "Client Browser"
@@ -210,10 +214,10 @@ Server -> DB : SELECT FROM users WHERE username
 DB -> Server : Returns user record & hashed pass
 Server -> Browser : Return JWT Token (200 OK)
 Browser -> Customer : Display Dashboard Welcome
-`
+`,
   },
   {
-    name: 'Password Reset Sequence',
+    name: "Password Reset Sequence",
     code: `# Password Reset Sequence
 object User "User Client"
 object WebPortal "Web Portal"
@@ -227,10 +231,9 @@ MailServer -> User : Delivers Password Reset Email
 User -> WebPortal : Clicks Link & Enters New Password
 WebPortal -> AuthAPI : POST /api/reset-password (token, password)
 AuthAPI -> User : Password Updated Successfully
-`
-  }
+`,
+  },
 ];
-
 
 interface HeaderProps {
   sidebarOpen: boolean;
@@ -240,24 +243,33 @@ interface HeaderProps {
   fileId?: string | null;
 }
 
-export default function Header({ sidebarOpen, onToggleSidebar, projectId, projectName, fileId }: HeaderProps) {
+export default function Header({
+  sidebarOpen,
+  onToggleSidebar,
+  projectId,
+  projectName,
+  fileId,
+}: HeaderProps) {
   const mode = useDbStore((state) => state.mode);
   const sqlCode = useDbStore((state) => state.sqlCode);
   const usecaseCode = useDbStore((state) => state.usecaseCode);
   const setMode = useDbStore((state) => state.setMode);
   const setCode = useDbStore((state) => state.setCode);
   const triggerParse = useDbStore((state) => state.triggerParse);
-  
+
   const layout = useDbStore((state) => state.layout);
   const usecaseDiagram = useDbStore((state) => state.usecaseDiagram);
   const attrPositions = useDbStore((state) => state.attrPositions);
+  const relPositions = useDbStore((state) => state.relPositions);
+  const customWaypoints = useDbStore((state) => state.customWaypoints);
+  const frameName = useDbStore((state) => state.frameName);
   const relNotation = useDbStore((state) => state.relNotation);
   const lrsKeyNotation = useDbStore((state) => state.lrsKeyNotation);
   const classMethods = useDbStore((state) => state.classMethods);
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const driveMenuRef = useRef<DriveMenuRef>(null);
-  
+
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
   const [showKeyPopover, setShowKeyPopover] = useState(false);
@@ -290,7 +302,7 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
 
   const handleSaveKey = async () => {
     if (!tempKey.trim()) {
-      setValidationError('API Key cannot be empty.');
+      setValidationError("API Key cannot be empty.");
       return;
     }
     setIsValidating(true);
@@ -316,7 +328,7 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
       const text = event.target?.result as string;
       setCode(mode, text);
       triggerParse(mode, text);
-      
+
       // Auto-save to Drive after importing
       setTimeout(() => {
         driveMenuRef.current?.triggerSave();
@@ -333,90 +345,113 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
 
   // Retrieve current active templates based on active mode
   let activeTemplates = SQL_TEMPLATES;
-  let templateLabel = 'Select SQL Template';
-  if (mode === 'usecase') {
+  let templateLabel = "Select SQL Template";
+  if (mode === "usecase") {
     activeTemplates = USECASE_TEMPLATES;
-    templateLabel = 'Select Use Case Template';
+    templateLabel = "Select Use Case Template";
   }
 
   // Check if diagram is generated and can be exported
   let isExportable = false;
-  if (mode === 'erd' || mode === 'lrs' || mode === 'transformation' || mode === 'visual' || mode === 'class') {
+  if (
+    mode === "erd" ||
+    mode === "lrs" ||
+    mode === "transformation" ||
+    mode === "visual" ||
+    mode === "class"
+  ) {
     isExportable = layout !== null;
-  } else if (mode === 'usecase' || mode === 'uml') {
+  } else if (mode === "usecase" || mode === "uml") {
     isExportable = usecaseDiagram !== null;
   }
 
-  const handleExport = (format: 'drawio' | 'xml' | 'svg' | 'png') => {
+  const handleExport = (format: "drawio" | "xml" | "svg" | "png") => {
     setShowExportMenu(false);
-    let xml = '';
-    let filenameBase = 'diagram';
+    let xml = "";
+    let filenameBase = "diagram";
 
-    if (mode === 'erd' || mode === 'visual') {
-      if (layout) xml = generateDrawioXml(layout, attrPositions, relNotation);
-      filenameBase = mode === 'visual' ? 'visual_erd' : 'database_erd';
-    } else if (mode === 'lrs') {
+    if (mode === "erd" || mode === "visual") {
+      if (layout)
+        xml = generateDrawioXml(
+          layout,
+          attrPositions,
+          relNotation,
+          relPositions,
+          customWaypoints,
+          frameName,
+        );
+      filenameBase = mode === "visual" ? "visual_erd" : "database_erd";
+    } else if (mode === "lrs") {
       if (layout) xml = generateLrsXml(layout, lrsKeyNotation);
-      filenameBase = 'database_lrs';
-    } else if (mode === 'transformation') {
+      filenameBase = "database_lrs";
+    } else if (mode === "transformation") {
       if (layout) xml = generateTransformationXml(layout, lrsKeyNotation);
-      filenameBase = 'database_transformation';
-    } else if (mode === 'class') {
+      filenameBase = "database_transformation";
+    } else if (mode === "class") {
       if (layout) xml = generateClassXml(layout, classMethods, relNotation);
-      filenameBase = 'database_class';
-    } else if (mode === 'usecase') {
+      filenameBase = "database_class";
+    } else if (mode === "usecase") {
       if (usecaseDiagram) xml = generateUseCaseXml(usecaseDiagram);
-      filenameBase = 'usecase_diagram';
+      filenameBase = "usecase_diagram";
     }
 
-    if (format === 'drawio') {
-      if (xml) downloadFile(xml, `${filenameBase}.drawio`, 'application/xml');
-    } else if (format === 'xml') {
-      if (xml) downloadFile(xml, `${filenameBase}.xml`, 'text/xml');
+    if (format === "drawio") {
+      if (xml) downloadFile(xml, `${filenameBase}.drawio`, "application/xml");
+    } else if (format === "xml") {
+      if (xml) downloadFile(xml, `${filenameBase}.xml`, "text/xml");
     } else {
-      const svgElement = document.querySelector('#fooldb-svg') as SVGSVGElement;
+      const svgElement = document.querySelector("#fooldb-svg") as SVGSVGElement;
       if (!svgElement) {
-        alert('Diagram SVG element not found. Please wait for layout to complete.');
+        alert(
+          "Diagram SVG element not found. Please wait for layout to complete.",
+        );
         return;
       }
-      if (format === 'svg') {
+      if (format === "svg") {
         exportToSvg(svgElement, `${filenameBase}.svg`);
-      } else if (format === 'png') {
+      } else if (format === "png") {
         exportToPng(svgElement, `${filenameBase}.png`);
       }
     }
   };
 
   const getCurrentXml = () => {
-    let xml = '';
-    if (mode === 'erd' || mode === 'visual') {
-      if (layout) xml = generateDrawioXml(layout, attrPositions, relNotation);
-    } else if (mode === 'lrs') {
+    let xml = "";
+    if (mode === "erd" || mode === "visual") {
+      if (layout)
+        xml = generateDrawioXml(
+          layout,
+          attrPositions,
+          relNotation,
+          relPositions,
+          customWaypoints,
+          frameName,
+        );
+    } else if (mode === "lrs") {
       if (layout) xml = generateLrsXml(layout, lrsKeyNotation);
-    } else if (mode === 'transformation') {
+    } else if (mode === "transformation") {
       if (layout) xml = generateTransformationXml(layout, lrsKeyNotation);
-    } else if (mode === 'class') {
+    } else if (mode === "class") {
       if (layout) xml = generateClassXml(layout, classMethods, relNotation);
-    } else if (mode === 'usecase') {
+    } else if (mode === "usecase") {
       if (usecaseDiagram) xml = generateUseCaseXml(usecaseDiagram);
     }
     return xml;
   };
 
   const handleDriveLoad = (xml: string) => {
-    // Determine the current mode or just blindly try to parse it. 
+    // Determine the current mode or just blindly try to parse it.
     // Ideally we should determine mode from the file contents, but for now we'll just set it and parse it.
     setCode(mode, xml);
     triggerParse(mode, xml);
   };
 
-  const showTemplateBtn = mode !== 'transformation' && mode !== 'visual';
+  const showTemplateBtn = mode !== "transformation" && mode !== "visual";
 
-  const showImportBtn = mode !== 'transformation' && mode !== 'visual';
+  const showImportBtn = mode !== "transformation" && mode !== "visual";
 
   return (
     <header className="flex items-center w-full h-12 border-b border-zinc-800 bg-zinc-950 px-2 z-20 shrink-0 gap-2">
-      
       {/* Left section */}
       <div className="flex items-center gap-3 w-1/3">
         <button
@@ -424,15 +459,29 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
           className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200 transition shrink-0"
           title="Toggle Left Sidebar"
         >
-          {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+          {sidebarOpen ? (
+            <PanelLeftClose className="h-4 w-4" />
+          ) : (
+            <PanelLeft className="h-4 w-4" />
+          )}
         </button>
         <div className="flex items-center gap-2">
-          <Link href="/dashboard" className="flex items-center gap-2 hover:opacity-80 transition-opacity" title="Return to Dashboard">
-            <img src="/Fool.png" alt="FooIDB Logo" className="w-7 h-7 rounded-md shadow-sm shrink-0" />
-            <span className="font-bold text-zinc-100 text-sm hidden sm:block tracking-tight">FooIDB</span>
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+            title="Return to Dashboard"
+          >
+            <img
+              src="/Fool.png"
+              alt="FooIDB Logo"
+              className="w-7 h-7 rounded-md shadow-sm shrink-0"
+            />
+            <span className="font-bold text-zinc-100 text-sm hidden sm:block tracking-tight">
+              FooIDB
+            </span>
           </Link>
         </div>
-        
+
         {projectName && (
           <>
             <span className="text-zinc-700 hidden sm:block">/</span>
@@ -448,7 +497,6 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
 
       {/* Right Controls */}
       <div className="flex items-center gap-1 shrink-0">
-
         {/* Templates Dropdown */}
         {showTemplateBtn && (
           <div className="relative">
@@ -460,11 +508,11 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
               <span className="hidden lg:inline">Templates</span>
               <ChevronDown className="h-3 w-3 text-zinc-500" />
             </button>
-            
+
             {showTemplateMenu && (
               <>
-                <div 
-                  className="fixed inset-0 z-20" 
+                <div
+                  className="fixed inset-0 z-20"
                   onClick={() => setShowTemplateMenu(false)}
                 />
                 <div className="absolute right-0 mt-1.5 w-56 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-xl z-30">
@@ -499,7 +547,7 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
         <input
           ref={fileInputRef}
           type="file"
-          accept={mode === 'erd' || mode === 'lrs' ? '.sql,.txt' : '.txt,.md'}
+          accept={mode === "erd" || mode === "lrs" ? ".sql,.txt" : ".txt,.md"}
           onChange={handleFileChange}
           className="hidden"
         />
@@ -518,8 +566,8 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
 
           {showExportMenu && isExportable && (
             <>
-              <div 
-                className="fixed inset-0 z-20" 
+              <div
+                className="fixed inset-0 z-20"
                 onClick={() => setShowExportMenu(false)}
               />
               <div className="absolute right-0 mt-1.5 w-48 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-xl z-30">
@@ -527,31 +575,39 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
                   Save diagram as
                 </div>
                 <button
-                  onClick={() => handleExport('drawio')}
+                  onClick={() => handleExport("drawio")}
                   className="w-full text-left rounded-md px-2.5 py-2 text-xs transition hover:bg-zinc-800 flex flex-col gap-0.5"
                 >
-                  <span className="font-medium text-zinc-200">Draw.io XML (.drawio)</span>
-                  <span className="text-[10px] text-zinc-500">Best for diagrams.net import</span>
+                  <span className="font-medium text-zinc-200">
+                    Draw.io XML (.drawio)
+                  </span>
+                  <span className="text-[10px] text-zinc-500">
+                    Best for diagrams.net import
+                  </span>
                 </button>
                 <button
-                  onClick={() => handleExport('xml')}
+                  onClick={() => handleExport("xml")}
                   className="w-full text-left rounded-md px-2.5 py-2 text-xs transition hover:bg-zinc-800 flex flex-col gap-0.5"
                 >
-                  <span className="font-medium text-zinc-200">Standard XML (.xml)</span>
-                  <span className="text-[10px] text-zinc-500">Raw schema compatible XML</span>
+                  <span className="font-medium text-zinc-200">
+                    Standard XML (.xml)
+                  </span>
+                  <span className="text-[10px] text-zinc-500">
+                    Raw schema compatible XML
+                  </span>
                 </button>
                 <div className="h-px bg-zinc-800 my-1" />
                 <div className="px-2.5 py-1.5 text-[10px] font-medium text-zinc-500 uppercase tracking-wide">
                   Image
                 </div>
                 <button
-                  onClick={() => handleExport('svg')}
+                  onClick={() => handleExport("svg")}
                   className="w-full text-left rounded-md px-2.5 py-2 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
                 >
                   Export Vector SVG
                 </button>
                 <button
-                  onClick={() => handleExport('png')}
+                  onClick={() => handleExport("png")}
                   className="w-full text-left rounded-md px-2.5 py-2 text-xs font-medium text-zinc-300 transition hover:bg-zinc-800 hover:text-zinc-100"
                 >
                   Export Raster PNG
@@ -565,11 +621,13 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
         <div className="w-px h-6 bg-zinc-800 shrink-0 mx-0.5" />
 
         {/* Drive Menu — compact icon-based version integrated in header */}
-        <DriveMenu 
+        <DriveMenu
           ref={driveMenuRef}
-          getCurrentXml={() => mode === 'usecase' ? usecaseCode : sqlCode} 
-          onLoadXml={handleDriveLoad} 
-          fileName={projectName ? `${projectName}-${mode}.txt` : `${mode}_diagram.txt`} 
+          getCurrentXml={() => (mode === "usecase" ? usecaseCode : sqlCode)}
+          onLoadXml={handleDriveLoad}
+          fileName={
+            projectName ? `${projectName}-${mode}.txt` : `${mode}_diagram.txt`
+          }
           projectId={projectId}
           fileId={fileId}
         />
@@ -586,9 +644,9 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
               setShowKeyPopover(!showKeyPopover);
             }}
             className={`flex h-8 w-8 items-center justify-center rounded-md border transition shrink-0 ${
-              mounted && apiKey !== ''
-                ? 'border-green-600/30 bg-green-950/20 text-green-500'
-                : 'border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
+              mounted && apiKey !== ""
+                ? "border-green-600/30 bg-green-950/20 text-green-500"
+                : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
             }`}
             title="Set Gemini API Key for AI auto-labeling"
           >
@@ -597,15 +655,18 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
 
           {showKeyPopover && (
             <>
-              <div 
-                className="fixed inset-0 z-20" 
+              <div
+                className="fixed inset-0 z-20"
                 onClick={() => setShowKeyPopover(false)}
               />
               <div className="absolute right-0 mt-1.5 w-72 rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-xl z-30 flex flex-col gap-3">
                 <div className="flex flex-col gap-1">
-                  <h4 className="text-xs font-semibold text-zinc-200">Gemini API Key</h4>
+                  <h4 className="text-xs font-semibold text-zinc-200">
+                    Gemini API Key
+                  </h4>
                   <p className="text-[10px] text-zinc-500 leading-relaxed">
-                    Required for AI relationship analysis. Saved locally in your browser.
+                    Required for AI relationship analysis. Saved locally in your
+                    browser.
                   </p>
                 </div>
                 <input
@@ -616,7 +677,7 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
                   placeholder="Paste your Gemini API Key..."
                   className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-xs text-zinc-200 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 font-mono disabled:opacity-50"
                 />
-                
+
                 {validationError && (
                   <p className="text-[10px] text-red-400 bg-red-950/20 border border-red-900/30 rounded p-2 leading-tight">
                     {validationError}
@@ -637,7 +698,7 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
                     disabled={isValidating}
                     className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isValidating ? 'Validating...' : 'Save Key'}
+                    {isValidating ? "Validating..." : "Save Key"}
                   </button>
                 </div>
               </div>
@@ -648,7 +709,9 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
         {/* Reset / Clear Button */}
         <button
           onClick={() => {
-            const ok = window.confirm("Are you sure you want to reset all diagrams and clear cached inputs? This will restore default schemas.");
+            const ok = window.confirm(
+              "Are you sure you want to reset all diagrams and clear cached inputs? This will restore default schemas.",
+            );
             if (ok) clearCache();
           }}
           className="flex h-8 w-8 items-center justify-center rounded-md border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-red-400 transition-colors shrink-0"
@@ -660,4 +723,3 @@ export default function Header({ sidebarOpen, onToggleSidebar, projectId, projec
     </header>
   );
 }
-

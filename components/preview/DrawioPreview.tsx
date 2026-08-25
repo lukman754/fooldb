@@ -259,7 +259,9 @@ export default function DrawioPreview() {
   );
   // Global selection state — synced with VisualEditor
   const selectedEntityName = useDbStore((state) => state.selectedEntityName);
-  const setSelectedEntityNameStore = useDbStore((state) => state.setSelectedEntityName);
+  const setSelectedEntityNameStore = useDbStore(
+    (state) => state.setSelectedEntityName,
+  );
   const setSelectedEntityName = (name: string | null) => {
     setSelectedEntityNameStore(name);
   };
@@ -286,7 +288,17 @@ export default function DrawioPreview() {
 
   // Zooming & Panning refs and states
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const diagramGroupRef = useRef<SVGGElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const frameName = useDbStore((state) => state.frameName);
+  const setFrameName = useDbStore((state) => state.setFrameName);
+  const [frameBounds, setFrameBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
   const panStartRef = useRef({ x: 0, y: 0 });
@@ -551,7 +563,7 @@ export default function DrawioPreview() {
     const deltaX = (clientX - draggingEntity.startPointerX) / zoom;
     const deltaY = (clientY - draggingEntity.startPointerY) / zoom;
 
-    if (Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) {
+    if ((Math.abs(deltaX) > 2 || Math.abs(deltaY) > 2) && !hasDragged) {
       setHasDragged(true);
     }
 
@@ -988,7 +1000,7 @@ export default function DrawioPreview() {
 
     const cx = node.x + node.width / 2;
     const cy = node.y + node.height / 2;
-    
+
     const table = node.table;
     const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
     const isPk = draggingAttr.colName === pkCol.name;
@@ -1008,8 +1020,11 @@ export default function DrawioPreview() {
       const pkIdx = table.columns.findIndex((c) => c.name === pkCol.name);
       const pkDefaultAngle = (2 * Math.PI * pkIdx) / table.columns.length;
       const pkDefaultRadius = 85 + table.columns.length * 5;
-      const pkPos = attrPositions[pkKey] || { angle: pkDefaultAngle, radius: pkDefaultRadius };
-      
+      const pkPos = attrPositions[pkKey] || {
+        angle: pkDefaultAngle,
+        radius: pkDefaultRadius,
+      };
+
       const relativeAngle = absoluteAngle - pkPos.angle;
       setAttrPosition(`${draggingAttr.tableName}-${draggingAttr.colName}`, {
         angle: relativeAngle,
@@ -1322,16 +1337,61 @@ export default function DrawioPreview() {
     if (!containerRef.current || !hasDiagramData) return;
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
-    const padding = 60;
-    const scaleX = (containerWidth - padding) / canvasWidth;
-    const scaleY = (containerHeight - padding) / canvasHeight;
+    const padding = 48;
+    const measuredBounds = diagramGroupRef.current?.getBBox();
+    const bounds =
+      measuredBounds && measuredBounds.width > 0 && measuredBounds.height > 0
+        ? measuredBounds
+        : { x: 0, y: 0, width: canvasWidth, height: canvasHeight };
+
+    const scaleX = (containerWidth - padding * 2) / bounds.width;
+    const scaleY = (containerHeight - padding * 2) / bounds.height;
     const fitScale = Math.max(0.1, Math.min(1.5, Math.min(scaleX, scaleY)));
     setZoom(fitScale);
     setPan({
-      x: (containerWidth - canvasWidth * fitScale) / 2,
-      y: (containerHeight - canvasHeight * fitScale) / 2,
+      x: (containerWidth - bounds.width * fitScale) / 2 - bounds.x * fitScale,
+      y: (containerHeight - bounds.height * fitScale) / 2 - bounds.y * fitScale,
     });
   }, [hasDiagramData, canvasWidth, canvasHeight, setZoom, setPan]);
+
+  // Keep the frame around the rendered diagram as nodes and relations move.
+  useEffect(() => {
+    if (!hasDiagramData || !diagramGroupRef.current) {
+      setFrameBounds((current) => (current === null ? current : null));
+      return;
+    }
+
+    const bounds = diagramGroupRef.current.getBBox();
+    if (bounds.width <= 0 || bounds.height <= 0) return;
+
+    const framePadding = 32;
+    const nextBounds = {
+      x: bounds.x - framePadding,
+      y: bounds.y - framePadding,
+      width: bounds.width + framePadding * 2,
+      height: bounds.height + framePadding * 2,
+    };
+    setFrameBounds((current) => {
+      if (
+        current &&
+        current.x === nextBounds.x &&
+        current.y === nextBounds.y &&
+        current.width === nextBounds.width &&
+        current.height === nextBounds.height
+      ) {
+        return current;
+      }
+      return nextBounds;
+    });
+  }, [
+    hasDiagramData,
+    layout,
+    usecaseDiagram,
+    mode,
+    relPositions,
+    customWaypoints,
+    attrPositions,
+  ]);
 
   // React to fit trigger from Footer
   useEffect(() => {
@@ -1380,11 +1440,22 @@ export default function DrawioPreview() {
             <span className="text-xs font-medium text-zinc-500 shrink-0">
               Mode: <span className="text-blue-400 font-semibold">{mode}</span>
             </span>
+            <input
+              value={frameName}
+              onChange={(e) => setFrameName(e.target.value)}
+              aria-label="Frame name"
+              placeholder="Diagram"
+              className="h-6 w-32 rounded border border-zinc-800 bg-zinc-900 px-2 text-[11px] text-zinc-300 outline-none placeholder:text-zinc-600 focus:border-blue-600/60"
+            />
           </div>
 
           <div className="relative flex items-center gap-2 shrink-0">
             {/* Right Panel Toggle */}
-            {(mode === "erd" || mode === "lrs" || mode === "transformation" || mode === "visual" || mode === "class") && (
+            {(mode === "erd" ||
+              mode === "lrs" ||
+              mode === "transformation" ||
+              mode === "visual" ||
+              mode === "class") && (
               <button
                 onClick={() => setShowRightPanel((v) => !v)}
                 title="Toggle view controls panel"
@@ -1396,7 +1467,9 @@ export default function DrawioPreview() {
               >
                 <Sliders className="h-3.5 w-3.5 shrink-0" />
                 <span>Controls</span>
-                <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${showRightPanel ? "rotate-180" : ""}`} />
+                <ChevronDown
+                  className={`h-3.5 w-3.5 shrink-0 transition-transform ${showRightPanel ? "rotate-180" : ""}`}
+                />
               </button>
             )}
             <div className="w-px h-4 bg-zinc-800 shrink-0" />
@@ -1426,9 +1499,9 @@ export default function DrawioPreview() {
                 <Redo2 className="h-3.5 w-3.5" />
               </button>
             </div>
-            </div>
           </div>
         </div>
+      </div>
       {/* 2. Main Render Canvas Area */}
       <div
         ref={containerRef}
@@ -1444,370 +1517,485 @@ export default function DrawioPreview() {
         )}
 
         {/* Right Controls Sidebar */}
-        {showRightPanel && (mode === "erd" || mode === "lrs" || mode === "transformation" || mode === "visual" || mode === "class") && (
-          <div
-            className="absolute right-3 top-3 bottom-3 z-30 w-56 flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 shadow-2xl backdrop-blur-sm overflow-y-auto select-none"
-            data-canvas-interactive="true"
-            onPointerDown={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-              <div className="flex items-center gap-1.5">
-                <Sliders className="h-3.5 w-3.5 text-blue-400" />
-                <span className="text-xs font-semibold text-zinc-200">View Controls</span>
-              </div>
-              <button
-                onClick={() => setShowRightPanel(false)}
-                className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* Filter Tables */}
-            {mode !== "visual" && (
-              <div className="space-y-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Tables</span>
-                <button
-                  onClick={() => setShowTableFilter(!showTableFilter)}
-                  className={`flex w-full h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition ${
-                    showTableFilter
-                      ? "border-blue-600/40 bg-blue-950/30 text-blue-400"
-                      : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  }`}
-                >
-                  <Filter className="h-3.5 w-3.5 shrink-0" />
-                  <span>Filter tables</span>
-                  <span className="ml-auto text-zinc-500 text-[10px]">
-                    ({schema.tables.length - excludedTables.length}/{schema.tables.length})
+        {showRightPanel &&
+          (mode === "erd" ||
+            mode === "lrs" ||
+            mode === "transformation" ||
+            mode === "visual" ||
+            mode === "class") && (
+            <div
+              className="absolute right-3 top-3 bottom-3 z-30 w-56 flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-950/95 p-3 shadow-2xl backdrop-blur-sm overflow-y-auto select-none"
+              data-canvas-interactive="true"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <div className="flex items-center gap-1.5">
+                  <Sliders className="h-3.5 w-3.5 text-blue-400" />
+                  <span className="text-xs font-semibold text-zinc-200">
+                    View Controls
                   </span>
+                </div>
+                <button
+                  onClick={() => setShowRightPanel(false)}
+                  className="rounded p-0.5 text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-            )}
 
-            {/* Relationship Notation */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Notation</span>
-              <div className="flex rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden">
-                <button
-                  onClick={() => setRelNotation("crowsfoot")}
-                  className={`flex-1 h-7 text-xs font-medium transition ${
-                    relNotation === "crowsfoot" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  }`}
-                >
-                  Crow&apos;s Foot
-                </button>
-                <div className="w-px bg-zinc-700" />
-                <button
-                  onClick={() => setRelNotation("label")}
-                  className={`flex-1 h-7 text-xs font-medium transition ${
-                    relNotation === "label" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  }`}
-                >
-                  1:N
-                </button>
-              </div>
-            </div>
-
-            {/* Line Style */}
-            <div className="space-y-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Line Style</span>
-              <div className="grid grid-cols-2 gap-1">
-                {(["sharp", "rounded", "curved", "straight"] as const).map((style) => (
+              {/* Filter Tables */}
+              {mode !== "visual" && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Tables
+                  </span>
                   <button
-                    key={style}
-                    onClick={() => setLineStyle(style)}
-                    className={`h-7 rounded text-xs font-medium capitalize transition border ${
-                      lineStyle === style
-                        ? "bg-blue-600 border-blue-500 text-white"
+                    onClick={() => setShowTableFilter(!showTableFilter)}
+                    className={`flex w-full h-7 px-2.5 items-center gap-1.5 rounded-md border text-xs font-medium transition ${
+                      showTableFilter
+                        ? "border-blue-600/40 bg-blue-950/30 text-blue-400"
                         : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     }`}
                   >
-                    {style.charAt(0).toUpperCase() + style.slice(1)}
+                    <Filter className="h-3.5 w-3.5 shrink-0" />
+                    <span>Filter tables</span>
+                    <span className="ml-auto text-zinc-500 text-[10px]">
+                      ({schema.tables.length - excludedTables.length}/
+                      {schema.tables.length})
+                    </span>
                   </button>
-                ))}
-              </div>
-            </div>
+                </div>
+              )}
 
-            {/* LRS Key Notation */}
-            {(mode === "lrs" || mode === "transformation") && (
+              {/* Relationship Notation */}
               <div className="space-y-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Key Notation</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Notation
+                </span>
                 <div className="flex rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden">
                   <button
-                    onClick={() => setLrsKeyNotation("stars")}
+                    onClick={() => setRelNotation("crowsfoot")}
                     className={`flex-1 h-7 text-xs font-medium transition ${
-                      lrsKeyNotation === "stars" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      relNotation === "crowsfoot"
+                        ? "bg-blue-600 text-white"
+                        : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     }`}
                   >
-                    * / **
+                    Crow&apos;s Foot
                   </button>
                   <div className="w-px bg-zinc-700" />
                   <button
-                    onClick={() => setLrsKeyNotation("letters")}
+                    onClick={() => setRelNotation("label")}
                     className={`flex-1 h-7 text-xs font-medium transition ${
-                      lrsKeyNotation === "letters" ? "bg-blue-600 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      relNotation === "label"
+                        ? "bg-blue-600 text-white"
+                        : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     }`}
                   >
-                    PK/FK
+                    1:N
                   </button>
                 </div>
               </div>
-            )}
 
-            {/* Diamond Size (ERD only) */}
-            {mode === "erd" && (
+              {/* Line Style */}
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Diamond Size</span>
-                  <span className="text-blue-400 text-[10px] font-mono">{diamondSize}</span>
-                </div>
-                <input
-                  type="range"
-                  min="60"
-                  max="240"
-                  value={diamondSize}
-                  onChange={(e) => setDiamondSize(parseInt(e.target.value, 10))}
-                  className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
-                />
-              </div>
-            )}
-
-            {/* Orbit / Radius (ERD only) */}
-            {mode === "erd" && (
-              <div className="space-y-1.5 border-t border-zinc-800 pt-3">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Orbit &amp; Radius</span>
-                {selectedAttrMeta ? (
-                  <div className="space-y-2">
-                    <div className="text-[10px] text-zinc-400 truncate">
-                      Attribute: <span className="text-zinc-200 font-semibold">{selectedAttr!.colName}</span>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-zinc-500">Orbit angle</span>
-                        <span className="text-blue-400 font-mono">{selectedAttrMeta.deg}°</span>
-                      </div>
-                      <input
-                        type="range" min="0" max="360"
-                        value={selectedAttrMeta.deg}
-                        onChange={(e) => {
-                          const newDeg = parseInt(e.target.value, 10);
-                          const rad = (newDeg * Math.PI) / 180;
-                          setAttrPosition(selectedAttrMeta.key, { ...selectedAttrMeta.pos, angle: rad });
-                        }}
-                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-zinc-500">Orbit radius</span>
-                        <span className="text-blue-400 font-mono">{selectedAttrMeta.radiusVal}px</span>
-                      </div>
-                      <input
-                        type="range" min="50" max="350"
-                        value={selectedAttrMeta.radiusVal}
-                        onChange={(e) => {
-                          const newRad = parseInt(e.target.value, 10);
-                          setAttrPosition(selectedAttrMeta.key, { ...selectedAttrMeta.pos, radius: newRad });
-                        }}
-                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
-                      />
-                    </div>
-                    <div className="flex gap-1.5 pt-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Line Style
+                </span>
+                <div className="grid grid-cols-2 gap-1">
+                  {(["sharp", "rounded", "curved", "straight"] as const).map(
+                    (style) => (
                       <button
-                        onClick={() => resetAttrPosition(selectedAttrMeta.key)}
-                        className="flex-1 rounded border border-zinc-800 bg-zinc-900 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+                        key={style}
+                        onClick={() => setLineStyle(style)}
+                        className={`h-7 rounded text-xs font-medium capitalize transition border ${
+                          lineStyle === style
+                            ? "bg-blue-600 border-blue-500 text-white"
+                            : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                        }`}
                       >
-                        Reset attr
+                        {style.charAt(0).toUpperCase() + style.slice(1)}
                       </button>
-                      <button
-                        onClick={() => resetTableAttrPositions(selectedAttr!.tableName, selectedAttrMeta.node.table.columns.map((c) => c.name))}
-                        className="flex-1 rounded border border-zinc-800 bg-zinc-900 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
-                      >
-                        Reset table
-                      </button>
-                    </div>
-                  </div>
-                ) : selectedEntityName && selectedEntityTable ? (
-                  <div className="space-y-3">
-                    <div className="text-[10px] text-zinc-400 truncate">
-                      Entity: <span className="text-zinc-200 font-semibold">{selectedEntityName}</span>
-                    </div>
-
-                    {/* Collective Rotation Slider */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-zinc-500">Rotate attributes</span>
-                        <span className="text-blue-400 font-mono">
-                          {(() => {
-                            const table = selectedEntityTable;
-                            if (table) {
-                              const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
-                              const key = `${table.name}-${pkCol.name}`;
-                              const pos = attrPositions[key];
-                              if (pos) {
-                                let deg = Math.round((pos.angle * 180) / Math.PI);
-                                if (deg < 0) deg += 360;
-                                return `${deg}°`;
-                              }
-                            }
-                            return "0°";
-                          })()}
-                        </span>
-                      </div>
-                      <input
-                        type="range" min="0" max="360"
-                        value={(() => {
-                          const table = selectedEntityTable;
-                          if (table) {
-                            const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
-                            const key = `${table.name}-${pkCol.name}`;
-                            const pos = attrPositions[key];
-                            if (pos) {
-                              let deg = Math.round((pos.angle * 180) / Math.PI);
-                              if (deg < 0) deg += 360;
-                              return deg;
-                            }
-                          }
-                          return 0;
-                        })()}
-                        onChange={(e) => {
-                          const deg = parseInt(e.target.value, 10);
-                          const rad = (deg * Math.PI) / 180;
-                          const table = selectedEntityTable;
-                          if (!table) return;
-                          const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
-                          const key = `${table.name}-${pkCol.name}`;
-                          const current = attrPositions[key] || { angle: rad, radius: 85 + table.columns.length * 5 };
-                          setAttrPosition(key, { ...current, angle: rad });
-                        }}
-                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Collective Radius Slider */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[10px]">
-                        <span className="text-zinc-500">Orbit radius</span>
-                        <span className="text-blue-400 font-mono">
-                          {(() => {
-                            const table = selectedEntityTable;
-                            if (table) {
-                              const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
-                              const key = `${table.name}-${pkCol.name}`;
-                              const pos = attrPositions[key];
-                              if (pos) return `${Math.round(pos.radius)}px`;
-                            }
-                            return `${85 + (table?.columns.length || 0) * 5}px`;
-                          })()}
-                        </span>
-                      </div>
-                      <input
-                        type="range" min="50" max="350"
-                        value={(() => {
-                          const table = selectedEntityTable;
-                          if (table) {
-                            const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
-                            const key = `${table.name}-${pkCol.name}`;
-                            const pos = attrPositions[key];
-                            if (pos) return Math.round(pos.radius);
-                          }
-                          return 85 + (table?.columns.length || 0) * 5;
-                        })()}
-                        onChange={(e) => {
-                          const newRad = parseInt(e.target.value, 10);
-                          const table = selectedEntityTable;
-                          if (!table) return;
-                          table.columns.forEach((col) => {
-                            const key = `${table.name}-${col.name}`;
-                            const current = attrPositions[key] || { angle: 0, radius: newRad };
-                            setAttrPosition(key, { ...current, radius: newRad });
-                          });
-                        }}
-                        className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
-                      />
-                    </div>
-
-                    {/* Attribute Spacing (Clustering / Density) Slider */}
-                    {(() => {
-                      const table = selectedEntityTable;
-                      const pkCol = table?.columns.find((c) => c.isPrimaryKey) || table?.columns[0];
-                      const otherCols = table?.columns.filter((c) => c.name !== pkCol?.name) || [];
-                      if (otherCols.length === 0) return null;
-
-                      return (
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[10px]">
-                            <span className="text-zinc-500">Clustering spacing</span>
-                            <span className="text-blue-400 font-mono">
-                              {(() => {
-                                const col0 = otherCols[0];
-                                const pos = attrPositions[`${table.name}-${col0.name}`];
-                                if (pos) {
-                                  return `${Math.abs(pos.angle).toFixed(2)} rad`;
-                                }
-                                return "0.25 rad";
-                              })()}
-                            </span>
-                          </div>
-                          <input
-                            type="range" min="0.05" max="1.0" step="0.01"
-                            value={(() => {
-                              const col0 = otherCols[0];
-                              const pos = attrPositions[`${table.name}-${col0.name}`];
-                              if (pos) {
-                                  return Math.abs(pos.angle);
-                              }
-                              return 0.25;
-                            })()}
-                            onChange={(e) => {
-                              const newSpacing = parseFloat(e.target.value);
-                              otherCols.forEach((col, idx) => {
-                                const key = `${table.name}-${col.name}`;
-                                const factor = idx % 2 === 0 ? 1 : -1;
-                                const step = Math.floor(idx / 2) + 1;
-                                const relAngle = newSpacing * factor * step;
-                                const current = attrPositions[key] || { angle: relAngle, radius: 85 + table.columns.length * 5 };
-                                setAttrPosition(key, { ...current, angle: relAngle });
-                              });
-                            }}
-                            className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
-                          />
-                        </div>
-                      );
-                    })()}
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-zinc-500 italic">Tap an entity or attribute to edit its orbit layout.</p>
-                )}
-              </div>
-            )}
-
-            {/* AI Auto-label */}
-            {mode !== "visual" && (
-              <div className="space-y-1.5 border-t border-zinc-800 pt-3">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">AI</span>
-                <button
-                  onClick={() => triggerAiLabeling().catch((err) => alert(err.message))}
-                  disabled={isAiLoading}
-                  className={`flex w-full h-8 px-2.5 items-center justify-center gap-1.5 rounded-md border text-xs font-medium transition ${
-                    isAiLoading
-                      ? "border-blue-600/40 bg-blue-950/30 text-blue-400 cursor-not-allowed"
-                      : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-                  }`}
-                >
-                  {isAiLoading ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
-                  ) : (
-                    <Sparkles className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    ),
                   )}
-                  {isAiLoading ? "Analyzing..." : "AI Auto-label"}
-                </button>
+                </div>
               </div>
-            )}
-          </div>
-        )}
 
+              {/* LRS Key Notation */}
+              {(mode === "lrs" || mode === "transformation") && (
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Key Notation
+                  </span>
+                  <div className="flex rounded-md border border-zinc-800 bg-zinc-900 overflow-hidden">
+                    <button
+                      onClick={() => setLrsKeyNotation("stars")}
+                      className={`flex-1 h-7 text-xs font-medium transition ${
+                        lrsKeyNotation === "stars"
+                          ? "bg-blue-600 text-white"
+                          : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      }`}
+                    >
+                      * / **
+                    </button>
+                    <div className="w-px bg-zinc-700" />
+                    <button
+                      onClick={() => setLrsKeyNotation("letters")}
+                      className={`flex-1 h-7 text-xs font-medium transition ${
+                        lrsKeyNotation === "letters"
+                          ? "bg-blue-600 text-white"
+                          : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                      }`}
+                    >
+                      PK/FK
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Diamond Size (ERD only) */}
+              {mode === "erd" && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                      Diamond Size
+                    </span>
+                    <span className="text-blue-400 text-[10px] font-mono">
+                      {diamondSize}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="60"
+                    max="240"
+                    value={diamondSize}
+                    onChange={(e) =>
+                      setDiamondSize(parseInt(e.target.value, 10))
+                    }
+                    className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Orbit / Radius (ERD only) */}
+              {mode === "erd" && (
+                <div className="space-y-1.5 border-t border-zinc-800 pt-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Orbit &amp; Radius
+                  </span>
+                  {selectedAttrMeta ? (
+                    <div className="space-y-2">
+                      <div className="text-[10px] text-zinc-400 truncate">
+                        Attribute:{" "}
+                        <span className="text-zinc-200 font-semibold">
+                          {selectedAttr!.colName}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-zinc-500">Orbit angle</span>
+                          <span className="text-blue-400 font-mono">
+                            {selectedAttrMeta.deg}°
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="360"
+                          value={selectedAttrMeta.deg}
+                          onChange={(e) => {
+                            const newDeg = parseInt(e.target.value, 10);
+                            const rad = (newDeg * Math.PI) / 180;
+                            setAttrPosition(selectedAttrMeta.key, {
+                              ...selectedAttrMeta.pos,
+                              angle: rad,
+                            });
+                          }}
+                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-zinc-500">Orbit radius</span>
+                          <span className="text-blue-400 font-mono">
+                            {selectedAttrMeta.radiusVal}px
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="50"
+                          max="350"
+                          value={selectedAttrMeta.radiusVal}
+                          onChange={(e) => {
+                            const newRad = parseInt(e.target.value, 10);
+                            setAttrPosition(selectedAttrMeta.key, {
+                              ...selectedAttrMeta.pos,
+                              radius: newRad,
+                            });
+                          }}
+                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex gap-1.5 pt-1">
+                        <button
+                          onClick={() =>
+                            resetAttrPosition(selectedAttrMeta.key)
+                          }
+                          className="flex-1 rounded border border-zinc-800 bg-zinc-900 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+                        >
+                          Reset attr
+                        </button>
+                        <button
+                          onClick={() =>
+                            resetTableAttrPositions(
+                              selectedAttr!.tableName,
+                              selectedAttrMeta.node.table.columns.map(
+                                (c) => c.name,
+                              ),
+                            )
+                          }
+                          className="flex-1 rounded border border-zinc-800 bg-zinc-900 py-1 text-[10px] font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition"
+                        >
+                          Reset table
+                        </button>
+                      </div>
+                    </div>
+                  ) : selectedEntityName && selectedEntityTable ? (
+                    <div className="space-y-3">
+                      <div className="text-[10px] text-zinc-400 truncate">
+                        Entity:{" "}
+                        <span className="text-zinc-200 font-semibold">
+                          {selectedEntityName}
+                        </span>
+                      </div>
+
+                      {/* Collective Rotation Slider */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-zinc-500">
+                            Rotate attributes
+                          </span>
+                          <span className="text-blue-400 font-mono">
+                            {(() => {
+                              const table = selectedEntityTable;
+                              if (table) {
+                                const pkCol =
+                                  table.columns.find((c) => c.isPrimaryKey) ||
+                                  table.columns[0];
+                                const key = `${table.name}-${pkCol.name}`;
+                                const pos = attrPositions[key];
+                                if (pos) {
+                                  let deg = Math.round(
+                                    (pos.angle * 180) / Math.PI,
+                                  );
+                                  if (deg < 0) deg += 360;
+                                  return `${deg}°`;
+                                }
+                              }
+                              return "0°";
+                            })()}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="360"
+                          value={(() => {
+                            const table = selectedEntityTable;
+                            if (table) {
+                              const pkCol =
+                                table.columns.find((c) => c.isPrimaryKey) ||
+                                table.columns[0];
+                              const key = `${table.name}-${pkCol.name}`;
+                              const pos = attrPositions[key];
+                              if (pos) {
+                                let deg = Math.round(
+                                  (pos.angle * 180) / Math.PI,
+                                );
+                                if (deg < 0) deg += 360;
+                                return deg;
+                              }
+                            }
+                            return 0;
+                          })()}
+                          onChange={(e) => {
+                            const deg = parseInt(e.target.value, 10);
+                            const rad = (deg * Math.PI) / 180;
+                            const table = selectedEntityTable;
+                            if (!table) return;
+                            const pkCol =
+                              table.columns.find((c) => c.isPrimaryKey) ||
+                              table.columns[0];
+                            const key = `${table.name}-${pkCol.name}`;
+                            const current = attrPositions[key] || {
+                              angle: rad,
+                              radius: 85 + table.columns.length * 5,
+                            };
+                            setAttrPosition(key, { ...current, angle: rad });
+                          }}
+                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Collective Radius Slider */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[10px]">
+                          <span className="text-zinc-500">Orbit radius</span>
+                          <span className="text-blue-400 font-mono">
+                            {(() => {
+                              const table = selectedEntityTable;
+                              if (table) {
+                                const pkCol =
+                                  table.columns.find((c) => c.isPrimaryKey) ||
+                                  table.columns[0];
+                                const key = `${table.name}-${pkCol.name}`;
+                                const pos = attrPositions[key];
+                                if (pos) return `${Math.round(pos.radius)}px`;
+                              }
+                              return `${85 + (table?.columns.length || 0) * 5}px`;
+                            })()}
+                          </span>
+                        </div>
+                        <input
+                          type="range"
+                          min="50"
+                          max="350"
+                          value={(() => {
+                            const table = selectedEntityTable;
+                            if (table) {
+                              const pkCol =
+                                table.columns.find((c) => c.isPrimaryKey) ||
+                                table.columns[0];
+                              const key = `${table.name}-${pkCol.name}`;
+                              const pos = attrPositions[key];
+                              if (pos) return Math.round(pos.radius);
+                            }
+                            return 85 + (table?.columns.length || 0) * 5;
+                          })()}
+                          onChange={(e) => {
+                            const newRad = parseInt(e.target.value, 10);
+                            const table = selectedEntityTable;
+                            if (!table) return;
+                            table.columns.forEach((col) => {
+                              const key = `${table.name}-${col.name}`;
+                              const current = attrPositions[key] || {
+                                angle: 0,
+                                radius: newRad,
+                              };
+                              setAttrPosition(key, {
+                                ...current,
+                                radius: newRad,
+                              });
+                            });
+                          }}
+                          className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Attribute Spacing (Clustering / Density) Slider */}
+                      {(() => {
+                        const table = selectedEntityTable;
+                        const pkCol =
+                          table?.columns.find((c) => c.isPrimaryKey) ||
+                          table?.columns[0];
+                        const otherCols =
+                          table?.columns.filter(
+                            (c) => c.name !== pkCol?.name,
+                          ) || [];
+                        if (otherCols.length === 0) return null;
+
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[10px]">
+                              <span className="text-zinc-500">
+                                Clustering spacing
+                              </span>
+                              <span className="text-blue-400 font-mono">
+                                {(() => {
+                                  const col0 = otherCols[0];
+                                  const pos =
+                                    attrPositions[`${table.name}-${col0.name}`];
+                                  if (pos) {
+                                    return `${Math.abs(pos.angle).toFixed(2)} rad`;
+                                  }
+                                  return "0.25 rad";
+                                })()}
+                              </span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.05"
+                              max="1.0"
+                              step="0.01"
+                              value={(() => {
+                                const col0 = otherCols[0];
+                                const pos =
+                                  attrPositions[`${table.name}-${col0.name}`];
+                                if (pos) {
+                                  return Math.abs(pos.angle);
+                                }
+                                return 0.25;
+                              })()}
+                              onChange={(e) => {
+                                const newSpacing = parseFloat(e.target.value);
+                                otherCols.forEach((col, idx) => {
+                                  const key = `${table.name}-${col.name}`;
+                                  const factor = idx % 2 === 0 ? 1 : -1;
+                                  const step = Math.floor(idx / 2) + 1;
+                                  const relAngle = newSpacing * factor * step;
+                                  const current = attrPositions[key] || {
+                                    angle: relAngle,
+                                    radius: 85 + table.columns.length * 5,
+                                  };
+                                  setAttrPosition(key, {
+                                    ...current,
+                                    angle: relAngle,
+                                  });
+                                });
+                              }}
+                              className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                            />
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-zinc-500 italic">
+                      Tap an entity or attribute to edit its orbit layout.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* AI Auto-label */}
+              {mode !== "visual" && (
+                <div className="space-y-1.5 border-t border-zinc-800 pt-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                    AI
+                  </span>
+                  <button
+                    onClick={() =>
+                      triggerAiLabeling().catch((err) => alert(err.message))
+                    }
+                    disabled={isAiLoading}
+                    className={`flex w-full h-8 px-2.5 items-center justify-center gap-1.5 rounded-md border text-xs font-medium transition ${
+                      isAiLoading
+                        ? "border-blue-600/40 bg-blue-950/30 text-blue-400 cursor-not-allowed"
+                        : "border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+                    }`}
+                  >
+                    {isAiLoading ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin text-blue-500 shrink-0" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                    )}
+                    {isAiLoading ? "Analyzing..." : "AI Auto-label"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
         {showTableFilter &&
           (mode === "erd" ||
@@ -2402,9 +2590,51 @@ export default function DrawioPreview() {
           {hasDiagramData ? (
             <svg
               id="fooldb-svg"
+              ref={svgRef}
               className="absolute inset-0 w-full h-full overflow-visible"
             >
+              {frameBounds && (
+                <g
+                  style={{
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                    transformOrigin: "0 0",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <rect
+                    x={frameBounds.x}
+                    y={frameBounds.y}
+                    width={frameBounds.width}
+                    height={frameBounds.height}
+                    rx={10}
+                    fill="rgba(24, 24, 27, 0.2)"
+                    stroke="#52525b"
+                    strokeWidth={2}
+                    strokeDasharray="8 6"
+                  />
+                  <rect
+                    x={frameBounds.x + 12}
+                    y={frameBounds.y - 1}
+                    width={Math.max(80, frameName.length * 8 + 24)}
+                    height={28}
+                    rx={6}
+                    fill="#18181b"
+                    stroke="#52525b"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={frameBounds.x + 24}
+                    y={frameBounds.y + 18}
+                    fill="#d4d4d8"
+                    fontSize={13}
+                    fontWeight={600}
+                  >
+                    {frameName || "Diagram"}
+                  </text>
+                </g>
+              )}
               <g
+                ref={diagramGroupRef}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: "0 0",
@@ -2539,8 +2769,16 @@ export default function DrawioPreview() {
                         const curr = path[i];
 
                         // Check if this segment crosses the border
-                        const prevInside = prev.x >= minX && prev.x <= maxX && prev.y >= minY && prev.y <= maxY;
-                        const currInside = curr.x >= minX && curr.x <= maxX && curr.y >= minY && curr.y <= maxY;
+                        const prevInside =
+                          prev.x >= minX &&
+                          prev.x <= maxX &&
+                          prev.y >= minY &&
+                          prev.y <= maxY;
+                        const currInside =
+                          curr.x >= minX &&
+                          curr.x <= maxX &&
+                          curr.y >= minY &&
+                          curr.y <= maxY;
 
                         if (prevInside && !currInside) {
                           // It exits during this segment!
@@ -2548,20 +2786,26 @@ export default function DrawioPreview() {
                           if (Math.abs(prev.x - curr.x) < 0.5) {
                             // Vertical segment
                             const exitY = curr.y < prev.y ? minY : maxY;
-                            const dir = curr.y < prev.y ? { x: 0, y: -1 } : { x: 0, y: 1 };
+                            const dir =
+                              curr.y < prev.y
+                                ? { x: 0, y: -1 }
+                                : { x: 0, y: 1 };
                             return {
                               pt: { x: prev.x, y: exitY },
                               dir,
-                              segIndex: i
+                              segIndex: i,
                             };
                           } else {
                             // Horizontal segment
                             const exitX = curr.x < prev.x ? minX : maxX;
-                            const dir = curr.x < prev.x ? { x: -1, y: 0 } : { x: 1, y: 0 };
+                            const dir =
+                              curr.x < prev.x
+                                ? { x: -1, y: 0 }
+                                : { x: 1, y: 0 };
                             return {
                               pt: { x: exitX, y: prev.y },
                               dir,
-                              segIndex: i
+                              segIndex: i,
                             };
                           }
                         }
@@ -2583,36 +2827,36 @@ export default function DrawioPreview() {
                     };
 
                     const getEdgeBorderPoint = (
-                       pt0: { x: number; y: number } | undefined,
-                       pt1: { x: number; y: number } | undefined,
-                       cx: number,
-                       cy: number,
-                       w: number,
-                       h: number,
-                     ) => {
-                       if (!pt0) return { x: cx, y: cy };
-                       const rx = w / 2;
-                       const ry = h / 2;
-                       const dxFromCenter = Math.abs(pt0.x - cx);
-                       const dyFromCenter = Math.abs(pt0.y - cy);
-                       if (dxFromCenter > rx - 2 || dyFromCenter > ry - 2) {
-                         return pt0;
-                       }
-                       const targetPt = pt1 ?? { x: cx, y: cy };
-                       const dx = targetPt.x - cx;
-                       const dy = targetPt.y - cy;
-                       if (Math.abs(dy) * rx > Math.abs(dx) * ry) {
-                         return {
-                           x: targetPt.x,
-                           y: dy < 0 ? cy - ry : cy + ry,
-                         };
-                       } else {
-                         return {
-                           x: dx < 0 ? cx - rx : cx + rx,
-                           y: targetPt.y,
-                         };
-                       }
-                     };
+                      pt0: { x: number; y: number } | undefined,
+                      pt1: { x: number; y: number } | undefined,
+                      cx: number,
+                      cy: number,
+                      w: number,
+                      h: number,
+                    ) => {
+                      if (!pt0) return { x: cx, y: cy };
+                      const rx = w / 2;
+                      const ry = h / 2;
+                      const dxFromCenter = Math.abs(pt0.x - cx);
+                      const dyFromCenter = Math.abs(pt0.y - cy);
+                      if (dxFromCenter > rx - 2 || dyFromCenter > ry - 2) {
+                        return pt0;
+                      }
+                      const targetPt = pt1 ?? { x: cx, y: cy };
+                      const dx = targetPt.x - cx;
+                      const dy = targetPt.y - cy;
+                      if (Math.abs(dy) * rx > Math.abs(dx) * ry) {
+                        return {
+                          x: targetPt.x,
+                          y: dy < 0 ? cy - ry : cy + ry,
+                        };
+                      } else {
+                        return {
+                          x: dx < 0 ? cx - rx : cx + rx,
+                          y: targetPt.y,
+                        };
+                      }
+                    };
 
                     const dw = diamondSize;
                     const dh = diamondSize * 0.375;
@@ -2689,9 +2933,91 @@ export default function DrawioPreview() {
                       };
                     });
 
+                    const rerouteDiamond = (
+                      diamond: (typeof diamonds)[number],
+                    ) => {
+                      const point = ptAtT(diamond.edge.points, diamond.t);
+                      diamond.x = point.x;
+                      diamond.y = point.y;
+
+                      const { path1: basePath1, path2: basePath2 } =
+                        splitPointsAtDiamond(
+                          diamond.edge.points,
+                          diamond.t,
+                          point,
+                        );
+                      const edgeWaypoints = customWaypoints[diamond.edge.id];
+                      const sourcePath = edgeWaypoints?.sourceWaypoints?.length
+                        ? [
+                            basePath1[0],
+                            ...edgeWaypoints.sourceWaypoints,
+                            basePath1[basePath1.length - 1],
+                          ]
+                        : makeOrthoPath(
+                            basePath1[0],
+                            basePath1[basePath1.length - 1],
+                          );
+                      const targetPath = edgeWaypoints?.targetWaypoints?.length
+                        ? [
+                            basePath2[0],
+                            ...edgeWaypoints.targetWaypoints,
+                            basePath2[basePath2.length - 1],
+                          ]
+                        : makeOrthoPath(
+                            basePath2[0],
+                            basePath2[basePath2.length - 1],
+                          );
+
+                      diamond.path1 = orthogonalisePath(sourcePath);
+                      diamond.path2 = orthogonalisePath(targetPath);
+                    };
+
+                    const overlapsEntity = (
+                      diamond: (typeof diamonds)[number],
+                      node: (typeof layout.nodes)[number],
+                    ) =>
+                      Math.abs(diamond.x - (node.x + node.width / 2)) <
+                        (diamond.w + 120) / 2 + 4 &&
+                      Math.abs(diamond.y - (node.y + node.height / 2)) <
+                        (diamond.h + 45) / 2 + 4;
+
                     // Resolve diamond collisions by sliding along path
                     for (let iter = 0; iter < 30; iter++) {
                       let moved = false;
+
+                      diamonds.forEach((diamond) => {
+                        if (diamond.hasCustomPos) return;
+                        const occupiedNodes = layout.nodes.filter((node) =>
+                          overlapsEntity(diamond, node),
+                        );
+                        if (occupiedNodes.length === 0) return;
+
+                        const currentT = diamond.t;
+                        const candidates = [
+                          Math.max(0.12, currentT - 0.06),
+                          Math.min(0.88, currentT + 0.06),
+                        ];
+                        const score = (candidateT: number) => {
+                          const point = ptAtT(diamond.edge.points, candidateT);
+                          return layout.nodes.filter(
+                            (node) =>
+                              Math.abs(point.x - (node.x + node.width / 2)) <
+                                (diamond.w + 120) / 2 + 4 &&
+                              Math.abs(point.y - (node.y + node.height / 2)) <
+                                (diamond.h + 45) / 2 + 4,
+                          ).length;
+                        };
+                        const bestT = candidates.reduce((best, candidate) =>
+                          score(candidate) < score(best) ? candidate : best,
+                        );
+
+                        if (score(bestT) < occupiedNodes.length) {
+                          diamond.t = bestT;
+                          rerouteDiamond(diamond);
+                          moved = true;
+                        }
+                      });
+
                       for (let i = 0; i < diamonds.length; i++) {
                         for (let j = i + 1; j < diamonds.length; j++) {
                           const a = diamonds[i],
@@ -2706,12 +3032,8 @@ export default function DrawioPreview() {
                             moved = true;
                             a.t = Math.max(0.15, Math.min(0.85, a.t - 0.04));
                             b.t = Math.max(0.15, Math.min(0.85, b.t + 0.04));
-                            const pa = ptAtT(a.edge.points, a.t),
-                              pb = ptAtT(b.edge.points, b.t);
-                            a.x = pa.x;
-                            a.y = pa.y;
-                            b.x = pb.x;
-                            b.y = pb.y;
+                            rerouteDiamond(a);
+                            rerouteDiamond(b);
                           }
                         }
                       }
@@ -2722,9 +3044,16 @@ export default function DrawioPreview() {
                     avoidOverlappingSegments(diamonds);
 
                     // Collect all vertical segments in the diagram (for horizontal line jump intersections)
-                    const allVerticalSegments: { x: number; y1: number; y2: number; edgeId: string }[] = [];
+                    const allVerticalSegments: {
+                      x: number;
+                      y1: number;
+                      y2: number;
+                      edgeId: string;
+                    }[] = [];
                     diamonds.forEach((d) => {
-                      const collectFromPath = (pts: { x: number; y: number }[]) => {
+                      const collectFromPath = (
+                        pts: { x: number; y: number }[],
+                      ) => {
                         for (let i = 0; i < pts.length - 1; i++) {
                           const A = pts[i];
                           const B = pts[i + 1];
@@ -2743,7 +3072,10 @@ export default function DrawioPreview() {
                     });
 
                     // Collect all line segments in the diagram (for attribute collision avoidance)
-                    const allSegments: { p1: { x: number; y: number }; p2: { x: number; y: number } }[] = [];
+                    const allSegments: {
+                      p1: { x: number; y: number };
+                      p2: { x: number; y: number };
+                    }[] = [];
                     diamonds.forEach((d) => {
                       for (let i = 0; i < d.path1.length - 1; i++) {
                         const p1 = d.path1[i];
@@ -2783,26 +3115,49 @@ export default function DrawioPreview() {
 
                     // Compute borders and directions using the actual orthogonal exit points
                     diamonds.forEach((d) => {
-                      const sn = layout.nodes.find((n) => n.id === d.rel.sourceTable);
-                      const tn = layout.nodes.find((n) => n.id === d.rel.targetTable);
+                      const sn = layout.nodes.find(
+                        (n) => n.id === d.rel.sourceTable,
+                      );
+                      const tn = layout.nodes.find(
+                        (n) => n.id === d.rel.targetTable,
+                      );
 
-                      const srcCenter = sn ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 } : d.path1[0];
-                      const tgtCenter = tn ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 } : d.path2[d.path2.length - 1];
+                      const srcCenter = sn
+                        ? { x: sn.x + sn.width / 2, y: sn.y + sn.height / 2 }
+                        : d.path1[0];
+                      const tgtCenter = tn
+                        ? { x: tn.x + tn.width / 2, y: tn.y + tn.height / 2 }
+                        : d.path2[d.path2.length - 1];
 
-                      const srcRes = getActualOrthoBorderPoint(d.path1, srcCenter.x, srcCenter.y, 120, 45);
+                      const srcRes = getActualOrthoBorderPoint(
+                        d.path1,
+                        srcCenter.x,
+                        srcCenter.y,
+                        120,
+                        45,
+                      );
                       d.srcBorder = srcRes.pt;
                       d.uSrc = srcRes.dir;
                       d.srcSegIndex = srcRes.segIndex;
 
                       const reversedPath2 = [...d.path2].reverse();
-                      const tgtRes = getActualOrthoBorderPoint(reversedPath2, tgtCenter.x, tgtCenter.y, 120, 45);
+                      const tgtRes = getActualOrthoBorderPoint(
+                        reversedPath2,
+                        tgtCenter.x,
+                        tgtCenter.y,
+                        120,
+                        45,
+                      );
                       d.tgtBorder = tgtRes.pt;
                       d.uTgt = tgtRes.dir;
                       d.tgtSegIndex = tgtRes.segIndex;
                     });
 
                     // Compute stagger offsets
-                    const staggerLevels = computeStaggerOffsets(diamonds, layout);
+                    const staggerLevels = computeStaggerOffsets(
+                      diamonds,
+                      layout,
+                    );
 
                     // Shift borders by stagger offset perpendicular to the line direction
                     const getStaggerOffsetVal = (index: number) => {
@@ -2813,8 +3168,10 @@ export default function DrawioPreview() {
                     };
 
                     diamonds.forEach((d) => {
-                      const srcStagger = staggerLevels[`${d.edge.id}-source`] || 0;
-                      const tgtStagger = staggerLevels[`${d.edge.id}-target`] || 0;
+                      const srcStagger =
+                        staggerLevels[`${d.edge.id}-source`] || 0;
+                      const tgtStagger =
+                        staggerLevels[`${d.edge.id}-target`] || 0;
 
                       if (srcStagger > 0) {
                         const px = -d.uSrc.y;
@@ -2822,7 +3179,7 @@ export default function DrawioPreview() {
                         const offset = getStaggerOffsetVal(srcStagger);
                         d.srcBorder.x += px * offset;
                         d.srcBorder.y += py * offset;
-                        
+
                         const bendIdx = d.srcSegIndex;
                         if (d.path1[bendIdx]) {
                           d.path1[bendIdx].x += px * offset;
@@ -2835,13 +3192,42 @@ export default function DrawioPreview() {
                         const offset = getStaggerOffsetVal(tgtStagger);
                         d.tgtBorder.x += px * offset;
                         d.tgtBorder.y += py * offset;
-                        
+
                         const bendIdx = d.path2.length - 1 - d.tgtSegIndex;
                         if (d.path2[bendIdx]) {
                           d.path2[bendIdx].x += px * offset;
                           d.path2[bendIdx].y += py * offset;
                         }
                       }
+                    });
+
+                    // Rebuild jump intersections from the final paths. Endpoint
+                    // trimming and stagger offsets above can move vertical lines.
+                    allVerticalSegments.length = 0;
+                    diamonds.forEach((d) => {
+                      const sourcePath = [
+                        d.srcBorder || d.path1[0],
+                        ...d.path1.slice(1),
+                      ];
+                      const targetPath = [
+                        ...d.path2.slice(0, d.path2.length - 1),
+                        d.tgtBorder || d.path2[d.path2.length - 1],
+                      ];
+
+                      [sourcePath, targetPath].forEach((path) => {
+                        for (let i = 0; i < path.length - 1; i++) {
+                          const A = path[i];
+                          const B = path[i + 1];
+                          if (A && B && Math.abs(A.x - B.x) < 1.5) {
+                            allVerticalSegments.push({
+                              x: (A.x + B.x) / 2,
+                              y1: A.y,
+                              y2: B.y,
+                              edgeId: d.edge.id,
+                            });
+                          }
+                        }
+                      });
                     });
 
                     return (
@@ -2856,12 +3242,25 @@ export default function DrawioPreview() {
                               ? edge.sourceTable === selectedEntityName ||
                                 edge.targetTable === selectedEntityName
                               : false);
-                            const srcStart = d.srcBorder || path1[0];
-                            const tgtEnd = d.tgtBorder || path2[path2.length - 1];
-                            const adjPath1 = [srcStart, ...path1.slice(1)];
-                            const adjPath2 = [...path2.slice(0, path2.length - 1), tgtEnd];
-                            const d1 = generatePathDWithJumps(adjPath1, allVerticalSegments, edge.id, lineStyle);
-                            const d2 = generatePathDWithJumps(adjPath2, allVerticalSegments, edge.id, lineStyle);
+                          const srcStart = d.srcBorder || path1[0];
+                          const tgtEnd = d.tgtBorder || path2[path2.length - 1];
+                          const adjPath1 = [srcStart, ...path1.slice(1)];
+                          const adjPath2 = [
+                            ...path2.slice(0, path2.length - 1),
+                            tgtEnd,
+                          ];
+                          const d1 = generatePathDWithJumps(
+                            adjPath1,
+                            allVerticalSegments,
+                            edge.id,
+                            lineStyle,
+                          );
+                          const d2 = generatePathDWithJumps(
+                            adjPath2,
+                            allVerticalSegments,
+                            edge.id,
+                            lineStyle,
+                          );
 
                           const edgeWaypts = customWaypoints[edge.id] || {
                             sourceWaypoints: [],
@@ -3072,16 +3471,27 @@ export default function DrawioPreview() {
                             ),
                           );
 
-                          const pkCol = table.columns.find((c) => c.isPrimaryKey) || table.columns[0];
-                          const pkIdx = table.columns.findIndex((c) => c.name === pkCol.name);
+                          const pkCol =
+                            table.columns.find((c) => c.isPrimaryKey) ||
+                            table.columns[0];
+                          const pkIdx = table.columns.findIndex(
+                            (c) => c.name === pkCol.name,
+                          );
                           const pkKey = `${table.name}-${pkCol.name}`;
                           const pkDefaultAngle = (2 * Math.PI * pkIdx) / N;
                           const pkDefaultRadius = 85 + N * 5;
-                          const pkPos = attrPositions[pkKey] || { angle: pkDefaultAngle, radius: pkDefaultRadius };
-                          const pkX = entityCx + pkPos.radius * Math.cos(pkPos.angle);
-                          const pkY = entityCy + pkPos.radius * Math.sin(pkPos.angle);
+                          const pkPos = attrPositions[pkKey] || {
+                            angle: pkDefaultAngle,
+                            radius: pkDefaultRadius,
+                          };
+                          const pkX =
+                            entityCx + pkPos.radius * Math.cos(pkPos.angle);
+                          const pkY =
+                            entityCy + pkPos.radius * Math.sin(pkPos.angle);
 
-                          const otherCols = table.columns.filter((c) => c.name !== pkCol.name);
+                          const otherCols = table.columns.filter(
+                            (c) => c.name !== pkCol.name,
+                          );
 
                           const attrs = table.columns.map((col, idx) => {
                             const isPk = col.name === pkCol.name;
@@ -3104,7 +3514,9 @@ export default function DrawioPreview() {
                                 y: pkY,
                               };
                             } else {
-                              const otherIdx = otherCols.findIndex((c) => c.name === col.name);
+                              const otherIdx = otherCols.findIndex(
+                                (c) => c.name === col.name,
+                              );
                               const factor = otherIdx % 2 === 0 ? 1 : -1;
                               const step = Math.floor(otherIdx / 2) + 1;
                               const defaultRelativeAngle = 0.25 * factor * step;
@@ -3121,13 +3533,22 @@ export default function DrawioPreview() {
                                 height: h_attr,
                                 angle: pos.angle,
                                 radius: pos.radius,
-                                x: entityCx + pos.radius * Math.cos(absoluteAngle),
-                                y: entityCy + pos.radius * Math.sin(absoluteAngle),
+                                x:
+                                  entityCx +
+                                  pos.radius * Math.cos(absoluteAngle),
+                                y:
+                                  entityCy +
+                                  pos.radius * Math.sin(absoluteAngle),
                               };
                             }
                           });
 
-                          resolveCollisions(attrs, entityCx, entityCy, allSegments);
+                          resolveCollisions(
+                            attrs,
+                            entityCx,
+                            entityCy,
+                            allSegments,
+                          );
 
                           const selectedAttrInTable =
                             selectedAttr &&
@@ -5286,7 +5707,7 @@ interface AttrPosition {
 function closestPointOnSegment(
   p: { x: number; y: number },
   a: { x: number; y: number },
-  b: { x: number; y: number }
+  b: { x: number; y: number },
 ): { x: number; y: number } {
   const abx = b.x - a.x;
   const aby = b.y - a.y;
@@ -5321,7 +5742,10 @@ function avoidOverlappingSegments(diamonds: any[]) {
   const vSegs: SegRef[] = [];
 
   diamonds.forEach((d) => {
-    const processPath = (pts: { x: number; y: number }[], pathKey: "path1" | "path2") => {
+    const processPath = (
+      pts: { x: number; y: number }[],
+      pathKey: "path1" | "path2",
+    ) => {
       if (pts.length < 3) return;
       for (let i = 1; i <= pts.length - 2; i++) {
         const A = pts[i];
@@ -5370,7 +5794,8 @@ function avoidOverlappingSegments(diamonds: any[]) {
 
           const diff = s1.coord - s2.coord;
           if (Math.abs(diff) < spacing) {
-            const overlap = Math.min(s1.maxVal, s2.maxVal) - Math.max(s1.minVal, s2.minVal);
+            const overlap =
+              Math.min(s1.maxVal, s2.maxVal) - Math.max(s1.minVal, s2.minVal);
             if (overlap > 5) {
               changed = true;
               const push = (spacing - Math.abs(diff)) / 2 + 1;
@@ -5410,7 +5835,7 @@ function drawHorizontalSegmentWithJumps(
   A: { x: number; y: number },
   B: { x: number; y: number },
   allVerticalSegments: { x: number; y1: number; y2: number; edgeId: string }[],
-  currentEdgeId: string
+  currentEdgeId: string,
 ): string {
   const y = A.y;
   const xStart = A.x;
@@ -5451,8 +5876,11 @@ function drawHorizontalSegmentWithJumps(
   intersections.forEach((vx) => {
     const jumpStart = vx - r * dx;
     const jumpEnd = vx + r * dx;
-    
-    if ((xStart < xEnd && jumpStart > lastX + 1) || (xStart > xEnd && jumpStart < lastX - 1)) {
+
+    if (
+      (xStart < xEnd && jumpStart > lastX + 1) ||
+      (xStart > xEnd && jumpStart < lastX - 1)
+    ) {
       d += ` L ${jumpStart} ${y} A ${r} ${r} 0 0 ${sweepFlag} ${jumpEnd} ${y}`;
       lastX = jumpEnd;
     }
@@ -5465,8 +5893,13 @@ function drawHorizontalSegmentWithJumps(
 function getRoundedPathDWithJumps(
   pts: { x: number; y: number }[],
   radius = 0,
-  allVerticalSegments: { x: number; y1: number; y2: number; edgeId: string }[] = [],
-  currentEdgeId = ""
+  allVerticalSegments: {
+    x: number;
+    y1: number;
+    y2: number;
+    edgeId: string;
+  }[] = [],
+  currentEdgeId = "",
 ): string {
   if (pts.length <= 1) return "";
   if (pts.length === 2) {
@@ -5475,7 +5908,12 @@ function getRoundedPathDWithJumps(
     if (!A || !B) return "";
     let d = `M ${A.x} ${A.y}`;
     if (Math.abs(A.y - B.y) < 1.5) {
-      d += drawHorizontalSegmentWithJumps(A, B, allVerticalSegments, currentEdgeId);
+      d += drawHorizontalSegmentWithJumps(
+        A,
+        B,
+        allVerticalSegments,
+        currentEdgeId,
+      );
     } else {
       d += ` L ${B.x} ${B.y}`;
     }
@@ -5504,7 +5942,12 @@ function getRoundedPathDWithJumps(
 
     if (r <= 0) {
       if (Math.abs(prev.y - curr.y) < 1.5) {
-        d += drawHorizontalSegmentWithJumps(prev, curr, allVerticalSegments, currentEdgeId);
+        d += drawHorizontalSegmentWithJumps(
+          prev,
+          curr,
+          allVerticalSegments,
+          currentEdgeId,
+        );
       } else {
         d += ` L ${curr.x} ${curr.y}`;
       }
@@ -5520,7 +5963,12 @@ function getRoundedPathDWithJumps(
     const segmentStart = prev;
     const segmentEnd = { x: startX, y: startY };
     if (Math.abs(segmentStart.y - segmentEnd.y) < 1.5) {
-      d += drawHorizontalSegmentWithJumps(segmentStart, segmentEnd, allVerticalSegments, currentEdgeId);
+      d += drawHorizontalSegmentWithJumps(
+        segmentStart,
+        segmentEnd,
+        allVerticalSegments,
+        currentEdgeId,
+      );
     } else {
       d += ` L ${startX} ${startY}`;
     }
@@ -5531,7 +5979,7 @@ function getRoundedPathDWithJumps(
   const penultimate = pts[pts.length - 2];
   const last = pts[pts.length - 1];
   if (!penultimate || !last) return d;
-  
+
   let lastSegStart = penultimate;
   if (radius > 0 && pts.length > 2) {
     const prevNode = pts[pts.length - 3];
@@ -5555,7 +6003,12 @@ function getRoundedPathDWithJumps(
   }
 
   if (Math.abs(lastSegStart.y - last.y) < 1.5) {
-    d += drawHorizontalSegmentWithJumps(lastSegStart, last, allVerticalSegments, currentEdgeId);
+    d += drawHorizontalSegmentWithJumps(
+      lastSegStart,
+      last,
+      allVerticalSegments,
+      currentEdgeId,
+    );
   } else {
     d += ` L ${last.x} ${last.y}`;
   }
@@ -5567,13 +6020,13 @@ function generatePathDWithJumps(
   path: { x: number; y: number }[],
   allVerticalSegments: { x: number; y1: number; y2: number; edgeId: string }[],
   currentEdgeId: string,
-  lineStyle: string
+  lineStyle: string,
 ): string {
   return getRoundedPathDWithJumps(
     path,
     lineStyle === "rounded" ? 8 : lineStyle === "curved" ? 32 : 0,
     allVerticalSegments,
-    currentEdgeId
+    currentEdgeId,
   );
 }
 
@@ -5581,7 +6034,10 @@ function resolveCollisions(
   attrs: AttrPosition[],
   cx: number,
   cy: number,
-  allSegments: { p1: { x: number; y: number }; p2: { x: number; y: number } }[] = []
+  allSegments: {
+    p1: { x: number; y: number };
+    p2: { x: number; y: number };
+  }[] = [],
 ) {
   const maxIterations = 25;
   let changed = true;
@@ -5690,7 +6146,7 @@ function computeStaggerOffsets(
       width: number;
       height: number;
     }[];
-  } | null
+  } | null,
 ) {
   const staggers: Record<string, number> = {};
   if (!layout) return staggers;

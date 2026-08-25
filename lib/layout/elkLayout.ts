@@ -1,12 +1,27 @@
-import ELK, { ElkNode, ElkExtendedEdge } from 'elkjs/lib/elk.bundled.js';
-import { DatabaseSchema, LayoutData, LayoutNode, LayoutEdge, LayoutEdgePoint, ActivityDiagram, ActivityLayoutData, ActivityLayoutNode, ActivityLayoutEdge } from '@/types';
+import ELK, { ElkNode, ElkExtendedEdge } from "elkjs/lib/elk.bundled.js";
+import {
+  DatabaseSchema,
+  LayoutData,
+  LayoutNode,
+  LayoutEdge,
+  LayoutEdgePoint,
+  ActivityDiagram,
+  ActivityLayoutData,
+  ActivityLayoutNode,
+  ActivityLayoutEdge,
+} from "@/types";
 
 const elk = new ELK();
 
 const TABLE_WIDTH = 120;
 const TABLE_HEIGHT = 45;
+const NODE_GAP = 24;
+const EDGE_NODE_GAP = 28;
+const EDGE_GAP = 20;
 
-export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData> {
+export async function computeLayout(
+  schema: DatabaseSchema,
+): Promise<LayoutData> {
   const children: ElkNode[] = [];
   const edges: ElkExtendedEdge[] = [];
 
@@ -23,8 +38,8 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
       width: bboxWidth,
       height: bboxHeight,
       layoutOptions: {
-        'elk.portConstraints': 'FREE',
-      }
+        "elk.portConstraints": "FREE",
+      },
     });
   }
 
@@ -39,15 +54,18 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
 
   // 3. Define ELK Graph
   const graph: ElkNode = {
-    id: 'root',
+    id: "root",
     layoutOptions: {
-      'elk.algorithm': 'layered',
-      'elk.direction': 'DOWN',
-      'elk.spacing.nodeNode': '100', // Small spacing since node dimensions already include orbits
-      'elk.layered.spacing.edgeNode': '80',
-      'elk.layered.spacing.edgeEdge': '60',
-      'elk.edgeRouting': 'ORTHOGONAL', // Orthogonal routing for neat lines
-      'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF', // Balanced alignment
+      "elk.algorithm": "layered",
+      "elk.direction": "DOWN",
+      "elk.spacing.nodeNode": String(NODE_GAP),
+      "elk.layered.spacing.nodeNodeBetweenLayers": String(NODE_GAP),
+      "elk.layered.spacing.edgeNodeBetweenLayers": String(EDGE_NODE_GAP),
+      "elk.layered.spacing.edgeEdgeBetweenLayers": String(EDGE_GAP),
+      "elk.layered.spacing.edgeNode": String(EDGE_NODE_GAP),
+      "elk.layered.spacing.edgeEdge": String(EDGE_GAP),
+      "elk.edgeRouting": "ORTHOGONAL", // Orthogonal routing for neat lines
+      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF", // Balanced alignment
     },
     children,
     edges,
@@ -62,7 +80,7 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
     // 4. Map laid out nodes
     if (laidOutGraph.children) {
       for (const node of laidOutGraph.children) {
-        const table = schema.tables.find(t => t.name === node.id);
+        const table = schema.tables.find((t) => t.name === node.id);
         if (table) {
           layoutNodes.push({
             id: node.id,
@@ -79,33 +97,42 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
     // 5. Map laid out edges
     if (laidOutGraph.edges) {
       for (const edge of laidOutGraph.edges) {
-        const relationship = schema.relationships.find(r => r.id === edge.id);
+        const relationship = schema.relationships.find((r) => r.id === edge.id);
         if (relationship) {
           const points: LayoutEdgePoint[] = [];
-          const sourceNode = layoutNodes.find(n => n.id === relationship.sourceTable);
-          const targetNode = layoutNodes.find(n => n.id === relationship.targetTable);
+          const sourceNode = layoutNodes.find(
+            (n) => n.id === relationship.sourceTable,
+          );
+          const targetNode = layoutNodes.find(
+            (n) => n.id === relationship.targetTable,
+          );
 
-            if (edge.sections && edge.sections.length > 0 && sourceNode && targetNode) {
-              const section = edge.sections[0];
-              
-              const cx_src = sourceNode.x + sourceNode.width / 2;
-              const cy_src = sourceNode.y + sourceNode.height / 2;
-              const cx_tgt = targetNode.x + targetNode.width / 2;
-              const cy_tgt = targetNode.y + targetNode.height / 2;
+          if (
+            edge.sections &&
+            edge.sections.length > 0 &&
+            sourceNode &&
+            targetNode
+          ) {
+            const section = edge.sections[0];
 
-              // Add start point (source table center)
-              points.push({ x: cx_src, y: cy_src });
-              
-              // Add bend points
-              if (section.bendPoints) {
-                for (const bp of section.bendPoints) {
-                  points.push({ x: bp.x, y: bp.y });
-                }
+            const cx_src = sourceNode.x + sourceNode.width / 2;
+            const cy_src = sourceNode.y + sourceNode.height / 2;
+            const cx_tgt = targetNode.x + targetNode.width / 2;
+            const cy_tgt = targetNode.y + targetNode.height / 2;
+
+            // Add start point (source table center)
+            points.push({ x: cx_src, y: cy_src });
+
+            // Add bend points
+            if (section.bendPoints) {
+              for (const bp of section.bendPoints) {
+                points.push({ x: bp.x, y: bp.y });
               }
-              
-              // Add end point (target table center)
-              points.push({ x: cx_tgt, y: cy_tgt });
             }
+
+            // Add end point (target table center)
+            points.push({ x: cx_tgt, y: cy_tgt });
+          }
 
           layoutEdges.push({
             id: edge.id,
@@ -125,7 +152,7 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
       edges: layoutEdges,
     };
   } catch (error) {
-    console.error('ELK Layout failed:', error);
+    console.error("ELK Layout failed:", error);
     // Return simple fallback layout in case of error
     let fallbackY = 50;
     const layoutNodes: LayoutNode[] = schema.tables.map((table, index) => {
@@ -155,7 +182,9 @@ export async function computeLayout(schema: DatabaseSchema): Promise<LayoutData>
   }
 }
 
-export async function computeActivityLayout(diagram: ActivityDiagram): Promise<ActivityLayoutData> {
+export async function computeActivityLayout(
+  diagram: ActivityDiagram,
+): Promise<ActivityLayoutData> {
   if (!diagram || !diagram.nodes || diagram.nodes.length === 0) {
     return { nodes: [], edges: [], width: 100, height: 100 };
   }
@@ -165,10 +194,10 @@ export async function computeActivityLayout(diagram: ActivityDiagram): Promise<A
   for (const node of diagram.nodes) {
     let width = 120;
     let height = 45;
-    if (node.type === 'start' || node.type === 'end') {
+    if (node.type === "start" || node.type === "end") {
       width = 30;
       height = 30;
-    } else if (node.type === 'decision') {
+    } else if (node.type === "decision") {
       width = 80;
       height = 80;
     }
@@ -188,14 +217,14 @@ export async function computeActivityLayout(diagram: ActivityDiagram): Promise<A
   }
 
   const graph: ElkNode = {
-    id: 'root_activity',
+    id: "root_activity",
     layoutOptions: {
-      'elk.algorithm': 'layered',
-      'elk.direction': 'DOWN',
-      'elk.spacing.nodeNode': '60',
-      'elk.layered.spacing.edgeNode': '40',
-      'elk.layered.spacing.edgeEdge': '30',
-      'elk.edgeRouting': 'ORTHOGONAL',
+      "elk.algorithm": "layered",
+      "elk.direction": "DOWN",
+      "elk.spacing.nodeNode": "60",
+      "elk.layered.spacing.edgeNode": "40",
+      "elk.layered.spacing.edgeEdge": "30",
+      "elk.edgeRouting": "ORTHOGONAL",
     },
     children,
     edges,
@@ -208,7 +237,7 @@ export async function computeActivityLayout(diagram: ActivityDiagram): Promise<A
 
     if (laidOutGraph.children) {
       for (const child of laidOutGraph.children) {
-        const origNode = diagram.nodes.find(n => n.id === child.id);
+        const origNode = diagram.nodes.find((n) => n.id === child.id);
         if (origNode) {
           layoutNodes.push({
             id: child.id,
@@ -225,7 +254,7 @@ export async function computeActivityLayout(diagram: ActivityDiagram): Promise<A
 
     if (laidOutGraph.edges) {
       for (const edge of laidOutGraph.edges) {
-        const origEdge = diagram.edges.find(e => e.id === edge.id);
+        const origEdge = diagram.edges.find((e) => e.id === edge.id);
         if (origEdge) {
           const points: { x: number; y: number }[] = [];
           if (edge.sections && edge.sections.length > 0) {
@@ -256,17 +285,17 @@ export async function computeActivityLayout(diagram: ActivityDiagram): Promise<A
       edges: layoutEdges,
     };
   } catch (err) {
-    console.error('ELK Activity Layout failed:', err);
+    console.error("ELK Activity Layout failed:", err);
     const layoutNodes: ActivityLayoutNode[] = [];
     let currentY = 50;
 
     diagram.nodes.forEach((node) => {
       let width = 120;
       let height = 45;
-      if (node.type === 'start' || node.type === 'end') {
+      if (node.type === "start" || node.type === "end") {
         width = 30;
         height = 30;
-      } else if (node.type === 'decision') {
+      } else if (node.type === "decision") {
         width = 80;
         height = 80;
       }
@@ -282,7 +311,7 @@ export async function computeActivityLayout(diagram: ActivityDiagram): Promise<A
       currentY += height + 80;
     });
 
-    const layoutEdges: ActivityLayoutEdge[] = diagram.edges.map(e => ({
+    const layoutEdges: ActivityLayoutEdge[] = diagram.edges.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
@@ -298,4 +327,3 @@ export async function computeActivityLayout(diagram: ActivityDiagram): Promise<A
     };
   }
 }
-
