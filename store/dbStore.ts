@@ -84,6 +84,8 @@ interface DbState {
   removeVisualColumn: (tableName: string, colName: string) => void;
   updateVisualColumn: (tableName: string, colName: string, patch: Partial<Column>) => void;
   updateVisualRelationCardinality: (relId: string, sourceCardinality: 'one' | 'many', targetCardinality: 'one' | 'many') => void;
+  updateRelationshipVerb: (relId: string, verb: string) => void;
+  updateNodePosition: (tableName: string, x: number, y: number) => void;
   addVisualFK: (fromTable: string, toTable: string) => void;
   removeVisualRelation: (relId: string) => void;
   triggerVisualLayout: () => Promise<void>;
@@ -109,12 +111,41 @@ interface DbState {
   setRelNotation: (notation: 'crowsfoot' | 'label') => void;
   lrsKeyNotation: 'stars' | 'letters';
   setLrsKeyNotation: (notation: 'stars' | 'letters') => void;
+  lineStyle: 'sharp' | 'rounded' | 'curved' | 'straight';
+  setLineStyle: (style: 'sharp' | 'rounded' | 'curved' | 'straight') => void;
+  relPositions: { [relId: string]: { x: number; y: number } };
+  updateRelPosition: (relId: string, x: number, y: number) => void;
+  diamondSize: number;
+  setDiamondSize: (size: number) => void;
+  customWaypoints: { [edgeId: string]: { sourceWaypoints: { x: number; y: number }[]; targetWaypoints: { x: number; y: number }[] } };
+  updateWaypoints: (edgeId: string, side: 'source' | 'target', waypoints: { x: number; y: number }[]) => void;
   classMethods: { [tableName: string]: string[] };
   addClassMethod: (tableName: string, methodSignature: string) => void;
   removeClassMethod: (tableName: string, index: number) => void;
   updateClassMethod: (tableName: string, index: number, methodSignature: string) => void;
   setClassMethods: (methods: { [tableName: string]: string[] }) => void;
   clearCache: () => void;
+
+  history: {
+    schema: DatabaseSchema;
+    visualSchema: DatabaseSchema;
+    layout: LayoutData | null;
+    attrPositions: { [key: string]: { angle: number; radius: number } };
+    relPositions: { [relId: string]: { x: number; y: number } };
+    customWaypoints: { [edgeId: string]: { sourceWaypoints: { x: number; y: number }[]; targetWaypoints: { x: number; y: number }[] } };
+    sqlCode: string;
+    usecaseCode: string;
+    umlActors: UmlActor[];
+    umlUsecases: UmlUsecase[];
+    umlLinks: UmlLink[];
+    umlRelations: UmlRelation[];
+  }[];
+  historyIndex: number;
+  saveHistory: () => void;
+  undo: () => void;
+  redo: () => void;
+  canUndo: () => boolean;
+  canRedo: () => boolean;
 }
 
 const DEFAULT_SQL = `-- FoolDB E-commerce Sample Schema
@@ -299,6 +330,8 @@ export const useDbStore = create<DbState>((set, get) => {
 
   return {
     isInitialized: false,
+    history: [],
+    historyIndex: -1,
     umlActors: DEFAULT_UML_ACTORS,
     umlUsecases: DEFAULT_UML_USECASES,
     umlLinks: DEFAULT_UML_LINKS,
@@ -473,20 +506,110 @@ export const useDbStore = create<DbState>((set, get) => {
         ? 'M:N'
         : '1:N';
     set((state) => {
-      const relationships = state.visualSchema.relationships.map(rel =>
+      const updatedVisualRelationships = state.visualSchema.relationships.map(rel =>
         rel.id === relId ? { ...rel, type, sourceCardinality, targetCardinality } : rel
       );
+      const updatedRelationships = state.schema.relationships.map(rel =>
+        rel.id === relId ? { ...rel, type, sourceCardinality, targetCardinality } : rel
+      );
+      const layout = state.layout
+        ? {
+            ...state.layout,
+            edges: state.layout.edges.map(edge => {
+              if (edge.relationship.id === relId) {
+                return {
+                  ...edge,
+                  relationship: { ...edge.relationship, type, sourceCardinality, targetCardinality }
+                };
+              }
+              return edge;
+            })
+          }
+        : state.layout;
+
       return {
-        visualSchema: { ...state.visualSchema, relationships },
-        layout: state.layout
-          ? {
-              ...state.layout,
-              edges: state.layout.edges.map(edge => ({
-                ...edge,
-                relationship: relationships.find(rel => rel.id === edge.relationship.id) ?? edge.relationship,
-              })),
-            }
-          : state.layout,
+        visualSchema: { ...state.visualSchema, relationships: updatedVisualRelationships },
+        schema: { ...state.schema, relationships: updatedRelationships },
+        layout
+      };
+    });
+  },
+
+  updateRelationshipVerb: (relId, verb) => {
+    set((state) => {
+      const updatedVisualRelationships = state.visualSchema.relationships.map(rel =>
+        rel.id === relId ? { ...rel, verb } : rel
+      );
+      const updatedRelationships = state.schema.relationships.map(rel =>
+        rel.id === relId ? { ...rel, verb } : rel
+      );
+      const layout = state.layout
+        ? {
+            ...state.layout,
+            edges: state.layout.edges.map(edge => {
+              if (edge.relationship.id === relId) {
+                return {
+                  ...edge,
+                  relationship: { ...edge.relationship, verb }
+                };
+              }
+              return edge;
+            })
+          }
+        : state.layout;
+
+      return {
+        visualSchema: { ...state.visualSchema, relationships: updatedVisualRelationships },
+        schema: { ...state.schema, relationships: updatedRelationships },
+        layout
+      };
+    });
+  },
+
+  updateNodePosition: (tableName, x, y) => {
+    set((state) => {
+      if (!state.layout) return {};
+
+      // 1. Update the table node coordinates
+      const nodes = state.layout.nodes.map((node) => {
+        if (node.table.name === tableName) {
+          return { ...node, x, y };
+        }
+        return node;
+      });
+
+      const movedNode = nodes.find((n) => n.table.name === tableName);
+      if (!movedNode) return {};
+
+      const cx = movedNode.x + movedNode.width / 2;
+      const cy = movedNode.y + movedNode.height / 2;
+
+      // 2. Update connecting edge endpoints
+      const edges = state.layout.edges.map((edge) => {
+        const points = [...edge.points];
+        let updated = false;
+
+        if (edge.sourceTable === tableName && points.length > 0) {
+          points[0] = { x: cx, y: cy };
+          updated = true;
+        }
+        if (edge.targetTable === tableName && points.length > 0) {
+          points[points.length - 1] = { x: cx, y: cy };
+          updated = true;
+        }
+
+        if (updated) {
+          return { ...edge, points };
+        }
+        return edge;
+      });
+
+      return {
+        layout: {
+          ...state.layout,
+          nodes,
+          edges,
+        }
       };
     });
   },
@@ -573,6 +696,7 @@ export const useDbStore = create<DbState>((set, get) => {
     const { visualSchema } = get();
     if (visualSchema.tables.length === 0) {
       set({ layout: null, schema: visualSchema, error: null });
+      get().saveHistory();
       return;
     }
     try {
@@ -580,6 +704,7 @@ export const useDbStore = create<DbState>((set, get) => {
       // Ignore an outdated async layout result if the schema changed while ELK ran.
       if (get().visualSchema !== visualSchema) return;
       set({ layout, schema: visualSchema, error: null });
+      get().saveHistory();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       set({ error: msg });
@@ -674,6 +799,7 @@ export const useDbStore = create<DbState>((set, get) => {
           error: null
         });
       }
+      get().saveHistory();
     } catch (err: unknown) {
       console.error('Parsing failed:', err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -793,6 +919,8 @@ export const useDbStore = create<DbState>((set, get) => {
         if (cachedProjectId && cachedProjectId !== currentProjectId) {
           localStorage.removeItem(BUILDER_CACHE_KEY);
           localStorage.removeItem('fooldb_attr_positions');
+          localStorage.removeItem('fooldb_rel_positions');
+          localStorage.removeItem('fooldb_custom_waypoints');
         }
         localStorage.setItem('fooldb_last_project_id', currentProjectId);
       }
@@ -805,10 +933,26 @@ export const useDbStore = create<DbState>((set, get) => {
         // ignore
       }
       try {
+        const savedRels = localStorage.getItem('fooldb_rel_positions');
+        if (savedRels) {
+          set({ relPositions: JSON.parse(savedRels) });
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        const savedWaypoints = localStorage.getItem('fooldb_custom_waypoints');
+        if (savedWaypoints) {
+          set({ customWaypoints: JSON.parse(savedWaypoints) });
+        }
+      } catch {
+        // ignore
+      }
+      try {
         const cachedBuilderState = localStorage.getItem(BUILDER_CACHE_KEY);
         if (cachedBuilderState) {
           const cached = JSON.parse(cachedBuilderState) as Partial<Pick<DbState,
-            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'relNotation' | 'lrsKeyNotation' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations' | 'selectedUsecaseId'
+            'visualSchema' | 'visualSchemaActive' | 'sqlCode' | 'usecaseCode' | 'relNotation' | 'lrsKeyNotation' | 'lineStyle' | 'classMethods' | 'mode' | 'excludedTables' | 'zoom' | 'umlActors' | 'umlUsecases' | 'umlLinks' | 'umlRelations' | 'selectedUsecaseId' | 'diamondSize'
           >>;
           set({
             ...cached,
@@ -873,13 +1017,49 @@ export const useDbStore = create<DbState>((set, get) => {
   resetAllAttrPositions: () => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('fooldb_attr_positions');
+      localStorage.removeItem('fooldb_rel_positions');
+      localStorage.removeItem('fooldb_custom_waypoints');
     }
-    set({ attrPositions: {} });
+    set({ attrPositions: {}, relPositions: {}, customWaypoints: {} });
+  },
+  relPositions: {},
+  updateRelPosition: (relId, x, y) => {
+    set((state) => {
+      const updated = {
+        ...state.relPositions,
+        [relId]: { x, y }
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('fooldb_rel_positions', JSON.stringify(updated));
+      }
+      return { relPositions: updated };
+    });
+  },
+  diamondSize: 120,
+  setDiamondSize: (size) => set({ diamondSize: size }),
+  customWaypoints: {},
+  updateWaypoints: (edgeId, side, waypoints) => {
+    set((state) => {
+      const existing = state.customWaypoints[edgeId] || { sourceWaypoints: [], targetWaypoints: [] };
+      const updated = {
+        ...state.customWaypoints,
+        [edgeId]: {
+          ...existing,
+          [side === 'source' ? 'sourceWaypoints' : 'targetWaypoints']: waypoints,
+        },
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('fooldb_custom_waypoints', JSON.stringify(updated));
+      }
+      return { customWaypoints: updated };
+    });
   },
   relNotation: 'crowsfoot',
   setRelNotation: (notation) => set({ relNotation: notation }),
   lrsKeyNotation: 'stars',
   setLrsKeyNotation: (notation) => set({ lrsKeyNotation: notation }),
+  lineStyle: 'sharp',
+  setLineStyle: (style) => set({ lineStyle: style }),
   classMethods: {},
   addClassMethod: (tableName, methodSignature) => {
     set((state) => {
@@ -916,6 +1096,8 @@ export const useDbStore = create<DbState>((set, get) => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem(BUILDER_CACHE_KEY);
       localStorage.removeItem('fooldb_attr_positions');
+      localStorage.removeItem('fooldb_rel_positions');
+      localStorage.removeItem('fooldb_custom_waypoints');
     }
     set({
       mode: 'erd',
@@ -927,6 +1109,8 @@ export const useDbStore = create<DbState>((set, get) => {
       visualSchemaActive: false,
       classMethods: {},
       attrPositions: {},
+      relPositions: {},
+      customWaypoints: {},
       zoom: 1,
       umlActors: DEFAULT_UML_ACTORS,
       umlUsecases: DEFAULT_UML_USECASES,
@@ -935,6 +1119,92 @@ export const useDbStore = create<DbState>((set, get) => {
     });
     get().triggerParse('erd', DEFAULT_SQL);
   },
+
+  saveHistory: () => {
+    set((state) => {
+      const snapshot = {
+        schema: JSON.parse(JSON.stringify(state.schema)),
+        visualSchema: JSON.parse(JSON.stringify(state.visualSchema)),
+        layout: state.layout ? JSON.parse(JSON.stringify(state.layout)) : null,
+        attrPositions: JSON.parse(JSON.stringify(state.attrPositions)),
+        relPositions: JSON.parse(JSON.stringify(state.relPositions)),
+        customWaypoints: JSON.parse(JSON.stringify(state.customWaypoints)),
+        sqlCode: state.sqlCode,
+        usecaseCode: state.usecaseCode,
+        umlActors: JSON.parse(JSON.stringify(state.umlActors)),
+        umlUsecases: JSON.parse(JSON.stringify(state.umlUsecases)),
+        umlLinks: JSON.parse(JSON.stringify(state.umlLinks)),
+        umlRelations: JSON.parse(JSON.stringify(state.umlRelations)),
+      };
+
+      if (state.history.length > 0 && state.historyIndex >= 0) {
+        const current = state.history[state.historyIndex];
+        if (JSON.stringify(current) === JSON.stringify(snapshot)) {
+          return {};
+        }
+      }
+
+      const newHistory = state.history.slice(0, state.historyIndex + 1);
+      if (newHistory.length >= 50) {
+        newHistory.shift();
+      }
+      newHistory.push(snapshot);
+
+      return {
+        history: newHistory,
+        historyIndex: newHistory.length - 1,
+      };
+    });
+  },
+
+  undo: () => {
+    set((state) => {
+      if (state.historyIndex <= 0) return {};
+      const nextIndex = state.historyIndex - 1;
+      const snapshot = state.history[nextIndex];
+      return {
+        historyIndex: nextIndex,
+        schema: snapshot.schema,
+        visualSchema: snapshot.visualSchema,
+        layout: snapshot.layout,
+        attrPositions: snapshot.attrPositions,
+        relPositions: snapshot.relPositions ?? {},
+        customWaypoints: snapshot.customWaypoints ?? {},
+        sqlCode: snapshot.sqlCode,
+        usecaseCode: snapshot.usecaseCode,
+        umlActors: snapshot.umlActors,
+        umlUsecases: snapshot.umlUsecases,
+        umlLinks: snapshot.umlLinks,
+        umlRelations: snapshot.umlRelations,
+      };
+    });
+  },
+
+  redo: () => {
+    set((state) => {
+      if (state.historyIndex >= state.history.length - 1) return {};
+      const nextIndex = state.historyIndex + 1;
+      const snapshot = state.history[nextIndex];
+      return {
+        historyIndex: nextIndex,
+        schema: snapshot.schema,
+        visualSchema: snapshot.visualSchema,
+        layout: snapshot.layout,
+        attrPositions: snapshot.attrPositions,
+        relPositions: snapshot.relPositions ?? {},
+        customWaypoints: snapshot.customWaypoints ?? {},
+        sqlCode: snapshot.sqlCode,
+        usecaseCode: snapshot.usecaseCode,
+        umlActors: snapshot.umlActors,
+        umlUsecases: snapshot.umlUsecases,
+        umlLinks: snapshot.umlLinks,
+        umlRelations: snapshot.umlRelations,
+      };
+    });
+  },
+
+  canUndo: () => get().historyIndex > 0,
+  canRedo: () => get().historyIndex < get().history.length - 1,
 };
 });
 
@@ -948,6 +1218,7 @@ if (typeof window !== 'undefined') {
       usecaseCode: state.usecaseCode,
       relNotation: state.relNotation,
       lrsKeyNotation: state.lrsKeyNotation,
+      lineStyle: state.lineStyle,
       classMethods: state.classMethods,
       mode: state.mode,
       excludedTables: state.excludedTables,
@@ -957,6 +1228,7 @@ if (typeof window !== 'undefined') {
       umlLinks: state.umlLinks,
       umlRelations: state.umlRelations,
       selectedUsecaseId: state.selectedUsecaseId,
+      diamondSize: state.diamondSize,
     };
     localStorage.setItem(BUILDER_CACHE_KEY, JSON.stringify(cache));
   });

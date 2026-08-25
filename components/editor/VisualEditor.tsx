@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useDbStore } from "@/store/dbStore";
 import { Column } from "@/types";
 import { visualSchemaToSql } from "@/lib/parser/visualToSql";
+import { getRelationshipLabel } from "@/lib/xml/drawioGenerator";
 import {
   Plus,
   Trash2,
@@ -262,6 +263,7 @@ function TableCard({
     addVisualFK,
     removeVisualRelation,
     updateVisualRelationCardinality,
+    updateRelationshipVerb,
   } = useDbStore();
 
   const [collapsed, setCollapsed] = useState(false);
@@ -271,14 +273,17 @@ function TableCard({
   const table = visualSchema.tables.find((t) => t.name === tableName);
   if (!table) return null;
 
-  const tableRelations = visualSchema.relationships.filter(
+  const outgoingRelations = visualSchema.relationships.filter(
     (r) => r.sourceTable === tableName,
+  );
+  const tableRelations = visualSchema.relationships.filter(
+    (r) => r.sourceTable === tableName || r.targetTable === tableName,
   );
   const fkTargets = visualSchema.tables
     .filter(
       (t) =>
         t.name !== tableName &&
-        !tableRelations.some((r) => r.targetTable === t.name),
+        !outgoingRelations.some((r) => r.targetTable === t.name),
     )
     .map((t) => t.name);
 
@@ -436,62 +441,85 @@ function TableCard({
               <div className="text-[9px] font-semibold text-zinc-600 uppercase tracking-widest mb-1">
                 Relations
               </div>
-              {tableRelations.map((rel) => (
-                <div
-                  key={rel.id}
-                  className="flex items-center gap-1.5 text-[10px] text-zinc-400 py-0.5 group"
-                >
-                  <Link className="h-3 w-3 text-blue-500 shrink-0" />
-                  <span className="font-mono">{rel.sourceColumns[0]}</span>
-                  <span className="text-zinc-600">→</span>
-                  <span className="font-semibold text-zinc-300">
-                    {rel.targetTable}
-                  </span>
-                  <div className="ml-auto flex items-center gap-1">
-                    <select
-                      value={rel.sourceCardinality ?? "one"}
-                      onChange={(e) =>
-                        updateVisualRelationCardinality(
-                          rel.id,
-                          e.target.value as "one" | "many",
-                          rel.targetCardinality ??
-                            (rel.type === "1:1" ? "one" : "many"),
-                        )
-                      }
-                      className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[9px] text-zinc-400 outline-none focus:border-blue-500"
-                      title={`Cardinality for ${rel.sourceTable}`}
-                    >
-                      <option value="one">1</option>
-                      <option value="many">N</option>
-                    </select>
-                    <select
-                      value={
-                        rel.targetCardinality ??
-                        (rel.type === "1:1" ? "one" : "many")
-                      }
-                      onChange={(e) =>
-                        updateVisualRelationCardinality(
-                          rel.id,
-                          rel.sourceCardinality ?? "one",
-                          e.target.value as "one" | "many",
-                        )
-                      }
-                      className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[9px] text-zinc-400 outline-none focus:border-blue-500"
-                      title={`Cardinality for ${rel.targetTable}`}
-                    >
-                      <option value="one">1</option>
-                      <option value="many">N</option>
-                    </select>
-                  </div>
-                  <button
-                    onClick={() => removeVisualRelation(rel.id)}
-                    className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
-                    title="Remove relation"
+              {tableRelations.map((rel) => {
+                const isSource = rel.sourceTable === tableName;
+                return (
+                  <div
+                    key={rel.id}
+                    className="flex items-center gap-1.5 text-[10px] text-zinc-400 py-0.5 group w-full min-w-0"
                   >
-                    <Unlink className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
+                    <Link className="h-3 w-3 text-blue-500 shrink-0" />
+                    <div className="flex items-center gap-1 min-w-0 flex-1">
+                      {isSource ? (
+                        <>
+                          <span className="font-mono text-zinc-500 shrink-0">({rel.sourceColumns[0]})</span>
+                          <span className="text-zinc-600 shrink-0">&rarr;</span>
+                          <span className="font-semibold text-zinc-300 truncate max-w-[65px]" title={rel.targetTable}>
+                            {rel.targetTable}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-semibold text-zinc-300 truncate max-w-[65px]" title={rel.sourceTable}>
+                            {rel.sourceTable}
+                          </span>
+                          <span className="font-mono text-zinc-500 shrink-0">({rel.sourceColumns[0]})</span>
+                          <span className="text-zinc-600 shrink-0">&rarr;</span>
+                        </>
+                      )}
+                      <span className="text-zinc-600 shrink-0">:</span>
+                      <InlineEdit
+                        value={rel.verb || getRelationshipLabel(rel.sourceTable, rel.targetTable)}
+                        onCommit={(v) => updateRelationshipVerb(rel.id, v)}
+                        className="text-zinc-400 hover:text-blue-400 max-w-[75px] truncate font-medium"
+                      />
+                    </div>
+                    <div className="ml-auto flex items-center gap-1">
+                      <select
+                        value={rel.sourceCardinality ?? "one"}
+                        onChange={(e) =>
+                          updateVisualRelationCardinality(
+                            rel.id,
+                            e.target.value as "one" | "many",
+                            rel.targetCardinality ??
+                              (rel.type === "1:1" ? "one" : "many"),
+                          )
+                        }
+                        className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[9px] text-zinc-400 outline-none focus:border-blue-500"
+                        title={`Cardinality for ${rel.sourceTable}`}
+                      >
+                        <option value="one">1</option>
+                        <option value="many">N</option>
+                      </select>
+                      <select
+                        value={
+                          rel.targetCardinality ??
+                          (rel.type === "1:1" ? "one" : "many")
+                        }
+                        onChange={(e) =>
+                          updateVisualRelationCardinality(
+                            rel.id,
+                            rel.sourceCardinality ?? "one",
+                            e.target.value as "one" | "many",
+                          )
+                        }
+                        className="bg-zinc-800 border border-zinc-700 rounded px-1 py-0.5 text-[9px] text-zinc-400 outline-none focus:border-blue-500"
+                        title={`Cardinality for ${rel.targetTable}`}
+                      >
+                        <option value="one">1</option>
+                        <option value="many">N</option>
+                      </select>
+                    </div>
+                    <button
+                      onClick={() => removeVisualRelation(rel.id)}
+                      className="opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-400 transition-all"
+                      title="Remove relation"
+                    >
+                      <Unlink className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
