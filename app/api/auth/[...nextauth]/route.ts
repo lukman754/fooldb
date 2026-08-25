@@ -1,2 +1,10 @@
-import { handlers } from "@/auth" // Referring to the auth.ts we just created
-export const { GET, POST } = handlers
+import type { NextRequest } from "next/server";
+import { handlers } from "@/auth";
+
+export async function GET(request: NextRequest) {
+  return handlers.GET(request);
+}
+
+export async function POST(request: NextRequest) {
+  return handlers.POST(request);
+}

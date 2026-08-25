@@ -1,6 +1,10 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
+export async function GET() {
+  return NextResponse.json({ message: "generate-methods API placeholder (GET)" });
+}
+
 export async function POST(request: Request) {
   try {
     const { apiKey, tableName, columns }: { apiKey: string; tableName: string; columns: { name: string; type: string }[] } =
