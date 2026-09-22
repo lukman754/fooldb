@@ -24,6 +24,14 @@
 .DS_Store
 *.pem
 
+# local scratch / temporary files
+/scratch/
+/*.txt
+/test_*.mjs
+/test*.mjs
+/scan.mjs
+/fix_export2.mjs
+
 # debug
 npm-debug.log*
 yarn-debug.log*

@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useDbStore } from "@/store/dbStore";
 import { getRelationshipLabel } from "@/lib/xml/drawioGenerator";
 import { formatLrsColumn } from "@/lib/xml/lrsGenerator";
-import { Column } from "@/types";
+import { Column, Table } from "@/types";
 import {
   ChevronDown,
   RefreshCw,
@@ -171,6 +171,415 @@ const makeOrthoPath = (
   return [A, { x: B.x, y: A.y }, B];
 };
 
+function getRectBorderPoint(
+  center: { x: number; y: number },
+  toward: { x: number; y: number },
+  width: number,
+  height: number,
+) {
+  const dx = toward.x - center.x;
+  const dy = toward.y - center.y;
+  if (dx === 0 && dy === 0) return center;
+  const scaleX = dx === 0 ? Infinity : width / 2 / Math.abs(dx);
+  const scaleY = dy === 0 ? Infinity : height / 2 / Math.abs(dy);
+  const scale = Math.min(scaleX, scaleY);
+  return { x: center.x + dx * scale, y: center.y + dy * scale };
+}
+
+function getLrsTableWidth(
+  table: { name: string; columns: Column[]; foreignKeys: Table["foreignKeys"] },
+  showDataTypes: boolean,
+  notation: "stars" | "letters",
+) {
+  const longestText = table.columns.reduce((longest, column) => {
+    const keyPrefix = column.isPrimaryKey
+      ? notation === "stars"
+        ? "* "
+        : "PK "
+      : "";
+    const fkPrefix = table.foreignKeys.some((fk) =>
+      fk.columns.some(
+        (name) => name.toLowerCase() === column.name.toLowerCase(),
+      ),
+    )
+      ? "FK "
+      : "";
+    const textLength =
+      keyPrefix.length +
+      fkPrefix.length +
+      column.name.length +
+      (showDataTypes ? column.type.length + 3 : 0);
+    return Math.max(longest, textLength);
+  }, table.name.length);
+  return Math.max(180, Math.min(600, longestText * 9.5 + 36));
+}
+
+function getLrsRoute(
+  source: { x: number; y: number },
+  target: { x: number; y: number },
+  offset: number,
+) {
+  const horizontal =
+    Math.abs(target.x - source.x) >= Math.abs(target.y - source.y);
+  if (horizontal) {
+    const middleX = (source.x + target.x) / 2 + offset;
+    return [
+      source,
+      { x: middleX, y: source.y },
+      { x: middleX, y: target.y },
+      target,
+    ];
+  }
+  const middleY = (source.y + target.y) / 2 + offset;
+  return [
+    source,
+    { x: source.x, y: middleY },
+    { x: target.x, y: middleY },
+    target,
+  ];
+}
+
+interface LrsObstacle {
+  name: string;
+  x1: number;
+  x2: number;
+  y1: number;
+  y2: number;
+}
+
+function segmentHitsAnyObstacle(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  obstacles: LrsObstacle[],
+  ignoredNames: string[] = [],
+): boolean {
+  const isHoriz = Math.abs(p1.y - p2.y) < 1;
+  const isVert = Math.abs(p1.x - p2.x) < 1;
+  if (!isHoriz && !isVert) return true;
+
+  const minX = Math.min(p1.x, p2.x);
+  const maxX = Math.max(p1.x, p2.x);
+  const minY = Math.min(p1.y, p2.y);
+  const maxY = Math.max(p1.y, p2.y);
+
+  for (const obs of obstacles) {
+    if (ignoredNames.includes(obs.name)) continue;
+    // Clearance buffer of 4px around card borders
+    const ox1 = obs.x1 - 4;
+    const ox2 = obs.x2 + 4;
+    const oy1 = obs.y1 - 4;
+    const oy2 = obs.y2 + 4;
+
+    if (isHoriz) {
+      const y = p1.y;
+      if (y >= oy1 && y <= oy2) {
+        if (Math.max(minX, ox1) < Math.min(maxX, ox2)) return true;
+      }
+    } else {
+      const x = p1.x;
+      if (x >= ox1 && x <= ox2) {
+        if (Math.max(minY, oy1) < Math.min(maxY, oy2)) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function simplifyPath(points: { x: number; y: number }[]) {
+  if (points.length <= 2) return points;
+  const result: { x: number; y: number }[] = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = result[result.length - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+
+    const isCollinearX =
+      Math.abs(prev.x - curr.x) < 0.5 && Math.abs(curr.x - next.x) < 0.5;
+    const isCollinearY =
+      Math.abs(prev.y - curr.y) < 0.5 && Math.abs(curr.y - next.y) < 0.5;
+
+    if (isCollinearX || isCollinearY) {
+      continue;
+    }
+    if (
+      Math.abs(prev.x - curr.x) < 0.5 &&
+      Math.abs(prev.y - curr.y) < 0.5
+    ) {
+      continue;
+    }
+    result.push(curr);
+  }
+
+  const lastAdded = result[result.length - 1];
+  const target = points[points.length - 1];
+  if (
+    !(
+      Math.abs(lastAdded.x - target.x) < 0.5 &&
+      Math.abs(lastAdded.y - target.y) < 0.5
+    )
+  ) {
+    result.push(target);
+  }
+  return result;
+}
+
+function findOrthogonalShortestRoute(
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  srcFace: "left" | "right" | "top" | "bottom",
+  tgtFace: "left" | "right" | "top" | "bottom",
+  sourceTable: string,
+  targetTable: string,
+  obstacles: LrsObstacle[],
+  routeOffset: number = 0,
+): { x: number; y: number }[] {
+  const snapToGrid = (v: number) => Math.round(v / 10) * 10;
+  const S = { x: snapToGrid(start.x), y: snapToGrid(start.y) };
+  const E = { x: snapToGrid(end.x), y: snapToGrid(end.y) };
+  const ignored = [sourceTable, targetTable];
+
+  // 1. Direct Straight Lines (0 Bends)
+  if (S.x === E.x && !segmentHitsAnyObstacle(S, E, obstacles, ignored)) {
+    return [S, E];
+  }
+  if (S.y === E.y && !segmentHitsAnyObstacle(S, E, obstacles, ignored)) {
+    return [S, E];
+  }
+
+  // 2. Direct L-Shape (1 Bend)
+  const cornerA = { x: S.x, y: E.y };
+  const cornerB = { x: E.x, y: S.y };
+
+  const srcIsVert = srcFace === "top" || srcFace === "bottom";
+  const tgtIsHoriz = tgtFace === "left" || tgtFace === "right";
+
+  if (srcIsVert && tgtIsHoriz) {
+    if (
+      !segmentHitsAnyObstacle(S, cornerA, obstacles, ignored) &&
+      !segmentHitsAnyObstacle(cornerA, E, obstacles, ignored)
+    ) {
+      return [S, cornerA, E];
+    }
+  } else if (!srcIsVert && !tgtIsHoriz) {
+    if (
+      !segmentHitsAnyObstacle(S, cornerB, obstacles, ignored) &&
+      !segmentHitsAnyObstacle(cornerB, E, obstacles, ignored)
+    ) {
+      return [S, cornerB, E];
+    }
+  } else {
+    // Both horizontal or both vertical
+    if (srcIsVert) {
+      const midY = snapToGrid((S.y + E.y) / 2 + routeOffset);
+      const m1 = { x: S.x, y: midY };
+      const m2 = { x: E.x, y: midY };
+      if (
+        !segmentHitsAnyObstacle(S, m1, obstacles, ignored) &&
+        !segmentHitsAnyObstacle(m1, m2, obstacles, ignored) &&
+        !segmentHitsAnyObstacle(m2, E, obstacles, ignored)
+      ) {
+        return [S, m1, m2, E];
+      }
+    } else {
+      const midX = snapToGrid((S.x + E.x) / 2 + routeOffset);
+      const m1 = { x: midX, y: S.y };
+      const m2 = { x: midX, y: E.y };
+      if (
+        !segmentHitsAnyObstacle(S, m1, obstacles, ignored) &&
+        !segmentHitsAnyObstacle(m1, m2, obstacles, ignored) &&
+        !segmentHitsAnyObstacle(m2, E, obstacles, ignored)
+      ) {
+        return [S, m1, m2, E];
+      }
+    }
+  }
+
+  // Check the alternative 1-bend corner if still clear
+  if (
+    !segmentHitsAnyObstacle(S, cornerA, obstacles, ignored) &&
+    !segmentHitsAnyObstacle(cornerA, E, obstacles, ignored)
+  ) {
+    return [S, cornerA, E];
+  }
+  if (
+    !segmentHitsAnyObstacle(S, cornerB, obstacles, ignored) &&
+    !segmentHitsAnyObstacle(cornerB, E, obstacles, ignored)
+  ) {
+    return [S, cornerB, E];
+  }
+
+  // 3. Obstacle Detected in the Direct Path! Run A* Channel Routing
+  const margin = 20;
+  const xSet = new Set<number>([S.x, E.x]);
+  const ySet = new Set<number>([S.y, E.y]);
+
+  for (const obs of obstacles) {
+    xSet.add(snapToGrid(obs.x1 - margin));
+    xSet.add(snapToGrid(obs.x2 + margin));
+    ySet.add(snapToGrid(obs.y1 - margin));
+    ySet.add(snapToGrid(obs.y2 + margin));
+  }
+
+  const xs = Array.from(xSet).sort((a, b) => a - b);
+  const ys = Array.from(ySet).sort((a, b) => a - b);
+
+  interface ANode {
+    x: number;
+    y: number;
+    g: number;
+    h: number;
+    f: number;
+    parent: ANode | null;
+    dir: "H" | "V" | null;
+  }
+
+  const startNode: ANode = {
+    x: S.x,
+    y: S.y,
+    g: 0,
+    h: Math.abs(S.x - E.x) + Math.abs(S.y - E.y),
+    f: Math.abs(S.x - E.x) + Math.abs(S.y - E.y),
+    parent: null,
+    dir: srcIsVert ? "V" : "H",
+  };
+
+  const openList: ANode[] = [startNode];
+  const closedSet = new Set<string>();
+  let bestNode: ANode | null = null;
+  let iterations = 0;
+
+  while (openList.length > 0 && iterations < 300) {
+    iterations++;
+    openList.sort((a, b) => a.f - b.f);
+    const curr = openList.shift()!;
+
+    if (curr.x === E.x && curr.y === E.y) {
+      bestNode = curr;
+      break;
+    }
+
+    const key = `${curr.x},${curr.y},${curr.dir || ""}`;
+    if (closedSet.has(key)) continue;
+    closedSet.add(key);
+
+    for (const nextX of xs) {
+      if (nextX === curr.x) continue;
+      const p1 = { x: curr.x, y: curr.y };
+      const p2 = { x: nextX, y: curr.y };
+      if (!segmentHitsAnyObstacle(p1, p2, obstacles, ignored)) {
+        const turnCost = curr.dir === "V" ? 30 : 0;
+        const g = curr.g + Math.abs(nextX - curr.x) + turnCost;
+        const h = Math.abs(nextX - E.x) + Math.abs(curr.y - E.y);
+        openList.push({
+          x: nextX,
+          y: curr.y,
+          g,
+          h,
+          f: g + h,
+          parent: curr,
+          dir: "H",
+        });
+      }
+    }
+
+    for (const nextY of ys) {
+      if (nextY === curr.y) continue;
+      const p1 = { x: curr.x, y: curr.y };
+      const p2 = { x: curr.x, y: nextY };
+      if (!segmentHitsAnyObstacle(p1, p2, obstacles, ignored)) {
+        const turnCost = curr.dir === "H" ? 30 : 0;
+        const g = curr.g + Math.abs(nextY - curr.y) + turnCost;
+        const h = Math.abs(curr.x - E.x) + Math.abs(nextY - E.y);
+        openList.push({
+          x: curr.x,
+          y: nextY,
+          g,
+          h,
+          f: g + h,
+          parent: curr,
+          dir: "V",
+        });
+      }
+    }
+  }
+
+  if (bestNode) {
+    const rawPath: { x: number; y: number }[] = [];
+    let cur: ANode | null = bestNode;
+    while (cur) {
+      rawPath.unshift({ x: cur.x, y: cur.y });
+      cur = cur.parent;
+    }
+    return simplifyPath(rawPath);
+  }
+
+  return [S, cornerA, E];
+}
+
+function renderCrowFootMarker(
+  point: { x: number; y: number },
+  direction: { x: number; y: number },
+  cardinality: "one" | "many",
+  key: string,
+) {
+  const perpendicular = { x: -direction.y, y: direction.x };
+  const base = {
+    x: point.x + direction.x * 10,
+    y: point.y + direction.y * 10,
+  };
+
+  if (cardinality === "one") {
+    const tickPoint = {
+      x: point.x + direction.x * 3,
+      y: point.y + direction.y * 3,
+    };
+    return (
+      <line
+        key={key}
+        x1={tickPoint.x + perpendicular.x * 5}
+        y1={tickPoint.y + perpendicular.y * 5}
+        x2={tickPoint.x - perpendicular.x * 5}
+        y2={tickPoint.y - perpendicular.y * 5}
+        stroke="#6366f1"
+        strokeWidth={2}
+        strokeLinecap="round"
+      />
+    );
+  }
+
+  return (
+    <g key={key}>
+      <line
+        x1={point.x + perpendicular.x * 6}
+        y1={point.y + perpendicular.y * 6}
+        x2={base.x}
+        y2={base.y}
+        stroke="#6366f1"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <line
+        x1={point.x}
+        y1={point.y}
+        x2={base.x}
+        y2={base.y}
+        stroke="#6366f1"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+      <line
+        x1={point.x - perpendicular.x * 6}
+        y1={point.y - perpendicular.y * 6}
+        x2={base.x}
+        y2={base.y}
+        stroke="#6366f1"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+      />
+    </g>
+  );
+}
+
 function getRoundedPathD(pts: { x: number; y: number }[], radius = 12): string {
   if (pts.length <= 1) return "";
   if (pts.length === 2) {
@@ -243,6 +652,7 @@ export default function DrawioPreview() {
   const clearExcludedTables = useDbStore((state) => state.clearExcludedTables);
   const [showTableFilter, setShowTableFilter] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(false);
+  const [showLrsDataTypes, setShowLrsDataTypes] = useState(true);
 
   const error = useDbStore((state) => state.error);
   const isAiLoading = useDbStore((state) => state.isAiLoading);
@@ -279,11 +689,13 @@ export default function DrawioPreview() {
   const saveHistory = useDbStore((state) => state.saveHistory);
   const lineStyle = useDbStore((state) => state.lineStyle);
   const setLineStyle = useDbStore((state) => state.setLineStyle);
-  const relPositions = useDbStore((state) => state.relPositions ?? {});
+  const relPositionsRaw = useDbStore((state) => state.relPositions);
+  const relPositions = relPositionsRaw ?? {};
   const updateRelPosition = useDbStore((state) => state.updateRelPosition);
   const diamondSize = useDbStore((state) => state.diamondSize ?? 120);
   const setDiamondSize = useDbStore((state) => state.setDiamondSize);
-  const customWaypoints = useDbStore((state) => state.customWaypoints ?? {});
+  const customWaypointsRaw = useDbStore((state) => state.customWaypoints);
+  const customWaypoints = customWaypointsRaw ?? {};
   const updateWaypoints = useDbStore((state) => state.updateWaypoints);
 
   // Zooming & Panning refs and states
@@ -293,12 +705,6 @@ export default function DrawioPreview() {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const frameName = useDbStore((state) => state.frameName);
   const setFrameName = useDbStore((state) => state.setFrameName);
-  const [frameBounds, setFrameBounds] = useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  } | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
   const panStartRef = useRef({ x: 0, y: 0 });
@@ -943,6 +1349,36 @@ export default function DrawioPreview() {
     }
   }
 
+  const frameBounds = useMemo(() => {
+    if (!hasDiagramData) return null;
+    if (mode === "usecase" || mode === "uml") {
+      return {
+        x: -16,
+        y: -16,
+        width: canvasWidth + 32,
+        height: canvasHeight + 32,
+      };
+    }
+    if (!layout || layout.nodes.length === 0) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const node of layout.nodes) {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.width);
+      maxY = Math.max(maxY, node.y + node.height);
+    }
+    const padding = 48;
+    return {
+      x: Math.round(minX - padding),
+      y: Math.round(minY - padding),
+      width: Math.round(maxX - minX + padding * 2),
+      height: Math.round(maxY - minY + padding * 2),
+    };
+  }, [hasDiagramData, layout, mode, canvasWidth, canvasHeight]);
+
   // Auto-fit view coordinates and scale to container bounds when the active layout/mode changes
   useEffect(() => {
     if (!containerRef.current || !hasDiagramData) return;
@@ -1354,48 +1790,15 @@ export default function DrawioPreview() {
     });
   }, [hasDiagramData, canvasWidth, canvasHeight, setZoom, setPan]);
 
-  // Keep the frame around the rendered diagram as nodes and relations move.
-  useEffect(() => {
-    if (!hasDiagramData || !diagramGroupRef.current) {
-      setFrameBounds((current) => (current === null ? current : null));
-      return;
-    }
 
-    const bounds = diagramGroupRef.current.getBBox();
-    if (bounds.width <= 0 || bounds.height <= 0) return;
-
-    const framePadding = 32;
-    const nextBounds = {
-      x: bounds.x - framePadding,
-      y: bounds.y - framePadding,
-      width: bounds.width + framePadding * 2,
-      height: bounds.height + framePadding * 2,
-    };
-    setFrameBounds((current) => {
-      if (
-        current &&
-        current.x === nextBounds.x &&
-        current.y === nextBounds.y &&
-        current.width === nextBounds.width &&
-        current.height === nextBounds.height
-      ) {
-        return current;
-      }
-      return nextBounds;
-    });
-  }, [
-    hasDiagramData,
-    layout,
-    usecaseDiagram,
-    mode,
-    relPositions,
-    customWaypoints,
-    attrPositions,
-  ]);
 
   // React to fit trigger from Footer
+  const lastFitTriggerRef = useRef(0);
   useEffect(() => {
-    if (fitTrigger > 0) handleFit();
+    if (fitTrigger > 0 && fitTrigger !== lastFitTriggerRef.current) {
+      lastFitTriggerRef.current = fitTrigger;
+      handleFit();
+    }
   }, [fitTrigger, handleFit]);
 
   // Keyboard shortcuts for Undo (Ctrl+Z) and Redo (Ctrl+Y)
@@ -1652,6 +2055,18 @@ export default function DrawioPreview() {
                     </button>
                   </div>
                 </div>
+              )}
+
+              {mode === "lrs" && (
+                <label className="flex items-center gap-2 text-xs text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={showLrsDataTypes}
+                    onChange={(e) => setShowLrsDataTypes(e.target.checked)}
+                    className="accent-blue-500"
+                  />
+                  Show data types
+                </label>
               )}
 
               {/* Diamond Size (ERD only) */}
@@ -2612,18 +3027,8 @@ export default function DrawioPreview() {
                     strokeWidth={2}
                     strokeDasharray="8 6"
                   />
-                  <rect
-                    x={frameBounds.x + 12}
-                    y={frameBounds.y - 1}
-                    width={Math.max(80, frameName.length * 8 + 24)}
-                    height={28}
-                    rx={6}
-                    fill="#18181b"
-                    stroke="#52525b"
-                    strokeWidth={1}
-                  />
                   <text
-                    x={frameBounds.x + 24}
+                    x={frameBounds.x + 12}
                     y={frameBounds.y + 18}
                     fill="#d4d4d8"
                     fontSize={13}
@@ -2982,7 +3387,13 @@ export default function DrawioPreview() {
                         (diamond.h + 45) / 2 + 4;
 
                     // Resolve diamond collisions by sliding along path
-                    for (let iter = 0; iter < 30; iter++) {
+                    const diamondCollisionIterations =
+                      diamonds.length > 40 ? 10 : 30;
+                    for (
+                      let iter = 0;
+                      iter < diamondCollisionIterations;
+                      iter++
+                    ) {
                       let moved = false;
 
                       diamonds.forEach((diamond) => {
@@ -3310,6 +3721,7 @@ export default function DrawioPreview() {
                                 return (
                                   <line
                                     key={`hit-src-${si}`}
+                                    className="diagram-rel-hit-zone"
                                     x1={p.x}
                                     y1={p.y}
                                     x2={p2seg.x}
@@ -3342,6 +3754,7 @@ export default function DrawioPreview() {
                                 return (
                                   <line
                                     key={`hit-tgt-${si}`}
+                                    className="diagram-rel-hit-zone"
                                     x1={p.x}
                                     y1={p.y}
                                     x2={p2seg.x}
@@ -3811,11 +4224,6 @@ export default function DrawioPreview() {
                           const targetCardinality =
                             rel.targetCardinality ??
                             (rel.type === "1:1" ? "one" : "many");
-                          const srcLabel =
-                            sourceCardinality === "many" ? "N" : "1";
-                          const tgtLabel =
-                            targetCardinality === "many" ? "N" : "1";
-
                           const isDiamondSelected =
                             selectedRelationId === rel.id;
                           const isDiamondFocused =
@@ -3856,7 +4264,6 @@ export default function DrawioPreview() {
                                         const u = uSrc,
                                           px = -u.y,
                                           py = u.x;
-                                        // tip = right at border, base = 10px inward along line
                                         const tip = {
                                           x: srcBorder.x,
                                           y: srcBorder.y,
@@ -3922,7 +4329,6 @@ export default function DrawioPreview() {
                                         const u = uTgt,
                                           px = -u.y,
                                           py = u.x;
-                                        // tip = right at border, base = 10px inward along line
                                         const tip = {
                                           x: tgtBorder.x,
                                           y: tgtBorder.y,
@@ -3966,79 +4372,38 @@ export default function DrawioPreview() {
                                 </>
                               ) : (
                                 <>
-                                  {/* Text labels: positioned 36px back along the line */}
-                                  {(() => {
-                                    const u = uSrc,
-                                      px = -u.y,
-                                      py = u.x;
-                                    const lx = srcBorder.x + u.x * 10 + px * 10,
-                                      ly = srcBorder.y + u.y * 10 + py * 10;
-                                    return (
-                                      <g>
-                                        <rect
-                                          x={lx - 7}
-                                          y={ly - 7}
-                                          width={14}
-                                          height={14}
-                                          rx={4}
-                                          fill="#09090b"
-                                          stroke="#6366f1"
-                                          strokeWidth={1}
-                                        />
-                                        <text
-                                          x={lx}
-                                          y={ly}
-                                          textAnchor="middle"
-                                          dominantBaseline="middle"
-                                          fill="#a5b4fc"
-                                          className="pointer-events-none"
-                                          style={{
-                                            fontFamily: "monospace",
-                                            fontSize: "10px",
-                                            fontWeight: 700,
-                                          }}
-                                        >
-                                          {srcLabel}
-                                        </text>
-                                      </g>
-                                    );
-                                  })()}
-                                  {(() => {
-                                    const u = uTgt,
-                                      px = -u.y,
-                                      py = u.x;
-                                    const lx = tgtBorder.x + u.x * 10 + px * 10,
-                                      ly = tgtBorder.y + u.y * 10 + py * 10;
-                                    return (
-                                      <g>
-                                        <rect
-                                          x={lx - 7}
-                                          y={ly - 7}
-                                          width={14}
-                                          height={14}
-                                          rx={4}
-                                          fill="#09090b"
-                                          stroke="#6366f1"
-                                          strokeWidth={1}
-                                        />
-                                        <text
-                                          x={lx}
-                                          y={ly}
-                                          textAnchor="middle"
-                                          dominantBaseline="middle"
-                                          fill="#a5b4fc"
-                                          className="pointer-events-none"
-                                          style={{
-                                            fontFamily: "monospace",
-                                            fontSize: "10px",
-                                            fontWeight: 700,
-                                          }}
-                                        >
-                                          {tgtLabel}
-                                        </text>
-                                      </g>
-                                    );
-                                  })()}
+                                  <text
+                                    x={srcBorder.x + uSrc.x * 12 - uSrc.y * 11}
+                                    y={
+                                      srcBorder.y +
+                                      uSrc.y * 12 +
+                                      uSrc.x * 11 +
+                                      4
+                                    }
+                                    textAnchor="middle"
+                                    fill="#bfdbfe"
+                                    fontSize={10}
+                                    fontWeight={700}
+                                    pointerEvents="none"
+                                  >
+                                    {sourceCardinality === "many" ? "N" : "1"}
+                                  </text>
+                                  <text
+                                    x={tgtBorder.x + uTgt.x * 12 - uTgt.y * 11}
+                                    y={
+                                      tgtBorder.y +
+                                      uTgt.y * 12 +
+                                      uTgt.x * 11 +
+                                      4
+                                    }
+                                    textAnchor="middle"
+                                    fill="#bfdbfe"
+                                    fontSize={10}
+                                    fontWeight={700}
+                                    pointerEvents="none"
+                                  >
+                                    {targetCardinality === "many" ? "N" : "1"}
+                                  </text>
                                 </>
                               )}
 
@@ -4146,134 +4511,674 @@ export default function DrawioPreview() {
                     );
                   })()}
                 {/* B1. RENDER MODE: LRS SCHEMA */}
-                {mode === "lrs" && layout && (
-                  <>
-                    {/* 1. Draw Connectors (Orthogonal lines) */}
-                    {layout.edges.map((edge) => {
-                      const rel = edge.relationship;
-                      const isEdgeFocused = selectedEntityName
-                        ? edge.sourceTable === selectedEntityName ||
-                          edge.targetTable === selectedEntityName
-                        : false;
-                      let pathD = "";
-                      if (lineStyle === "straight") {
-                        const pts = edge.points;
-                        if (pts.length > 0) {
-                          pathD = `M ${pts[0].x} ${pts[0].y} L ${pts[pts.length - 1].x} ${pts[pts.length - 1].y}`;
-                        }
-                      } else if (lineStyle === "rounded") {
-                        pathD = getRoundedPathD(edge.points, 8);
-                      } else if (lineStyle === "curved") {
-                        pathD = getRoundedPathD(edge.points, 32);
+                {mode === "lrs" &&
+                  layout &&
+                  (() => {
+                    // 1. Group edges by table face connections
+                    const tableFaceConnections: Record<
+                      string,
+                      Record<"left" | "right" | "top" | "bottom", string[]>
+                    > = {};
+
+                    // Initialize for all nodes
+                    layout.nodes.forEach((node) => {
+                      tableFaceConnections[node.table.name] = {
+                        left: [],
+                        right: [],
+                        top: [],
+                        bottom: [],
+                      };
+                    });
+
+                    // Determine faces for each edge based on actual card gaps
+                    layout.edges.forEach((edge) => {
+                      const sn = layout.nodes.find(
+                        (n) => n.table.name === edge.sourceTable,
+                      );
+                      const tn = layout.nodes.find(
+                        (n) => n.table.name === edge.targetTable,
+                      );
+                      if (!sn || !tn) return;
+
+                      const sW = getLrsTableWidth(
+                        sn.table,
+                        showLrsDataTypes,
+                        lrsKeyNotation,
+                      );
+                      const sH = 42 + sn.table.columns.length * 26 + 8;
+                      const tW = getLrsTableWidth(
+                        tn.table,
+                        showLrsDataTypes,
+                        lrsKeyNotation,
+                      );
+                      const tH = 42 + tn.table.columns.length * 26 + 8;
+
+                      const sL = sn.x + sn.width / 2 - sW / 2;
+                      const sR = sL + sW;
+                      const sT = sn.y + sn.height / 2 - sH / 2;
+                      const sB = sT + sH;
+
+                      const tL = tn.x + tn.width / 2 - tW / 2;
+                      const tR = tL + tW;
+                      const tT = tn.y + tn.height / 2 - tH / 2;
+                      const tB = tT + tH;
+
+                      const isLeft = sR <= tL;
+                      const isRight = tR <= sL;
+                      const isAbove = sB <= tT;
+                      const isBelow = tB <= sT;
+
+                      let srcFace: "left" | "right" | "top" | "bottom";
+                      let tgtFace: "left" | "right" | "top" | "bottom";
+
+                      if (isBelow && isLeft) {
+                        // Source is Bottom-Left, Target is Top-Right -> Exit Top of Source, Enter Left of Target
+                        srcFace = "top";
+                        tgtFace = "left";
+                      } else if (isBelow && isRight) {
+                        // Source is Bottom-Right, Target is Top-Left -> Exit Left of Source, Enter Bottom of Target
+                        srcFace = "left";
+                        tgtFace = "bottom";
+                      } else if (isAbove && isLeft) {
+                        // Source is Top-Left, Target is Bottom-Right -> Exit Bottom of Source, Enter Left of Target
+                        srcFace = "bottom";
+                        tgtFace = "left";
+                      } else if (isAbove && isRight) {
+                        // Source is Top-Right, Target is Bottom-Left -> Exit Bottom of Source, Enter Right of Target
+                        srcFace = "bottom";
+                        tgtFace = "right";
+                      } else if (isBelow) {
+                        // Source directly Below Target
+                        srcFace = "top";
+                        tgtFace = "bottom";
+                      } else if (isAbove) {
+                        // Source directly Above Target
+                        srcFace = "bottom";
+                        tgtFace = "top";
+                      } else if (isLeft) {
+                        // Source directly Left of Target
+                        srcFace = "right";
+                        tgtFace = "left";
+                      } else if (isRight) {
+                        // Source directly Right of Target
+                        srcFace = "left";
+                        tgtFace = "right";
                       } else {
-                        edge.points.forEach((pt, i) => {
-                          pathD += `${i === 0 ? "M" : "L"} ${pt.x} ${pt.y} `;
-                        });
+                        // Overlapping boxes: compare centers
+                        const srcCenterX = sL + sW / 2;
+                        const srcCenterY = sT + sH / 2;
+                        const tgtCenterX = tL + tW / 2;
+                        const tgtCenterY = tT + tH / 2;
+                        const dx = tgtCenterX - srcCenterX;
+                        const dy = tgtCenterY - srcCenterY;
+
+                        if (Math.abs(dx) >= Math.abs(dy)) {
+                          srcFace = dx >= 0 ? "right" : "left";
+                          tgtFace = dx >= 0 ? "left" : "right";
+                        } else {
+                          srcFace = dy >= 0 ? "bottom" : "top";
+                          tgtFace = dy >= 0 ? "top" : "bottom";
+                        }
                       }
 
-                      return (
-                        <g key={edge.id}>
-                          <path
-                            d={pathD}
-                            fill="none"
-                            stroke={isEdgeFocused ? "#60a5fa" : "#2563eb"}
-                            strokeWidth={isEdgeFocused ? 2.25 : 1.5}
-                            markerStart="url(#one-marker)"
-                            markerEnd={
-                              rel.type === "1:1"
-                                ? "url(#one-one-marker)"
-                                : "url(#many-marker)"
-                            }
-                            className="diagram-rel-line"
-                          />
-                        </g>
+                      tableFaceConnections[edge.sourceTable][srcFace].push(
+                        edge.id,
                       );
-                    })}
+                      tableFaceConnections[edge.targetTable][tgtFace].push(
+                        edge.id,
+                      );
+                    });
 
-                    {/* 2. Draw Table Rows Blocks */}
-                    {layout.nodes.map((node) => {
-                      const table = node.table;
-                      const cx = node.x + node.width / 2;
-                      const cy = node.y + node.height / 2;
-                      const tWidth = 240;
-                      const tHeight = 42 + table.columns.length * 26 + 8;
-                      const tx = cx - 120;
-                      const ty = cy - tHeight / 2;
+                    // Sort connections to prevent line crossings
+                    layout.nodes.forEach((node) => {
+                      const name = node.table.name;
+                      const faces = tableFaceConnections[name];
+                      if (!faces) return;
 
-                      return (
-                        <g key={node.id}>
-                          {/* Outer Card */}
-                          <rect
-                            x={tx}
-                            y={ty}
-                            width={tWidth}
-                            height={tHeight}
-                            rx={8}
-                            fill="#18181b"
-                            stroke="#52525b"
-                            strokeWidth={1.5}
-                          />
-                          {/* Header */}
-                          <path
-                            d={`M ${tx} ${ty + 8} A 8 8 0 0 1 ${tx + 8} ${ty} L ${tx + tWidth - 8} ${ty} A 8 8 0 0 1 ${tx + tWidth} ${ty + 8} L ${tx + tWidth} ${ty + 42} L ${tx} ${ty + 42} Z`}
-                            fill="#09090b"
-                          />
-                          <text
-                            x={cx}
-                            y={ty + 26}
-                            textAnchor="middle"
-                            fill="#fafafa"
-                            className="text-xs font-semibold font-mono tracking-tight"
-                          >
-                            {table.name}
-                          </text>
+                      const getOtherCenter = (edgeId: string, isX: boolean) => {
+                        const edge = layout.edges.find((e) => e.id === edgeId);
+                        if (!edge) return 0;
+                        const otherTableName =
+                          edge.sourceTable === name
+                            ? edge.targetTable
+                            : edge.sourceTable;
+                        const otherNode = layout.nodes.find(
+                          (n) => n.table.name === otherTableName,
+                        );
+                        if (!otherNode) return 0;
+                        return isX
+                          ? otherNode.x + otherNode.width / 2
+                          : otherNode.y + otherNode.height / 2;
+                      };
 
-                          {/* Column Rows */}
-                          {table.columns.map((col, idx) => {
-                            const ry = ty + 42 + idx * 26;
-                            const isFk = table.foreignKeys.some((fk) =>
-                              fk.columns
-                                .map((c) => c.toLowerCase())
-                                .includes(col.name.toLowerCase()),
+                      faces.left.sort(
+                        (a, b) =>
+                          getOtherCenter(a, false) - getOtherCenter(b, false),
+                      );
+                      faces.right.sort(
+                        (a, b) =>
+                          getOtherCenter(a, false) - getOtherCenter(b, false),
+                      );
+                      faces.top.sort(
+                        (a, b) =>
+                          getOtherCenter(a, true) - getOtherCenter(b, true),
+                      );
+                      faces.bottom.sort(
+                        (a, b) =>
+                          getOtherCenter(a, true) - getOtherCenter(b, true),
+                      );
+                    });
+
+                    // Helper to get port coords
+                    const getPortCoords = (
+                      tableName: string,
+                      edgeId: string,
+                    ) => {
+                      const node = layout.nodes.find(
+                        (n) => n.table.name === tableName,
+                      );
+                      if (!node)
+                        return {
+                          x: 0,
+                          y: 0,
+                          dir: { x: 0, y: 0 },
+                          face: "left" as const,
+                        };
+
+                      // Find which face this edge is on
+                      const faces = tableFaceConnections[tableName];
+                      let face: "left" | "right" | "top" | "bottom" = "left";
+                      if (faces.left.includes(edgeId)) face = "left";
+                      else if (faces.right.includes(edgeId)) face = "right";
+                      else if (faces.top.includes(edgeId)) face = "top";
+                      else if (faces.bottom.includes(edgeId)) face = "bottom";
+
+                      const tWidth = getLrsTableWidth(
+                        node.table,
+                        showLrsDataTypes,
+                        lrsKeyNotation,
+                      );
+                      const tHeight = 42 + node.table.columns.length * 26 + 8;
+
+                      // Snap the table card origin tx, ty to 10px grid
+                      const snapToGrid = (val: number) =>
+                        Math.round(val / 10) * 10;
+                      const tx = snapToGrid(
+                        node.x + node.width / 2 - tWidth / 2,
+                      );
+                      const ty = snapToGrid(
+                        node.y + node.height / 2 - tHeight / 2,
+                      );
+
+                      const edgeIds = faces[face];
+                      const idx = edgeIds.indexOf(edgeId);
+                      const count = edgeIds.length;
+
+                      // Get other table's center coordinate for dynamic projection
+                      const edge = layout.edges.find((e) => e.id === edgeId);
+                      const otherTableName = edge
+                        ? edge.sourceTable === tableName
+                          ? edge.targetTable
+                          : edge.sourceTable
+                        : "";
+                      const otherNode = layout.nodes.find(
+                        (n) => n.table.name === otherTableName,
+                      );
+                      
+                      let otherCX = tx + tWidth / 2;
+                      let otherCY = ty + tHeight / 2;
+                      if (otherNode) {
+                        const otherW = getLrsTableWidth(
+                          otherNode.table,
+                          showLrsDataTypes,
+                          lrsKeyNotation,
+                        );
+                        const otherH = 42 + otherNode.table.columns.length * 26 + 8;
+                        otherCX = snapToGrid(otherNode.x + otherNode.width / 2 - otherW / 2 + otherW / 2);
+                        otherCY = snapToGrid(otherNode.y + otherNode.height / 2 - otherH / 2 + otherH / 2);
+                      }
+
+                      if (face === "left") {
+                        const prefY = Math.max(ty + 10, Math.min(ty + tHeight - 10, otherCY));
+                        const yRaw = prefY + (idx - (count - 1) / 2) * 20;
+                        const yClamped = Math.max(ty + 10, Math.min(ty + tHeight - 10, yRaw));
+                        return {
+                          x: tx,
+                          y: snapToGrid(yClamped),
+                          dir: { x: -1, y: 0 },
+                          face,
+                        };
+                      } else if (face === "right") {
+                        const prefY = Math.max(ty + 10, Math.min(ty + tHeight - 10, otherCY));
+                        const yRaw = prefY + (idx - (count - 1) / 2) * 20;
+                        const yClamped = Math.max(ty + 10, Math.min(ty + tHeight - 10, yRaw));
+                        return {
+                          x: tx + tWidth,
+                          y: snapToGrid(yClamped),
+                          dir: { x: 1, y: 0 },
+                          face,
+                        };
+                      } else if (face === "top") {
+                        const prefX = Math.max(tx + 10, Math.min(tx + tWidth - 10, otherCX));
+                        const xRaw = prefX + (idx - (count - 1) / 2) * 20;
+                        const xClamped = Math.max(tx + 10, Math.min(tx + tWidth - 10, xRaw));
+                        return {
+                          x: snapToGrid(xClamped),
+                          y: ty,
+                          dir: { x: 0, y: -1 },
+                          face,
+                        };
+                      } else {
+                        const prefX = Math.max(tx + 10, Math.min(tx + tWidth - 10, otherCX));
+                        const xRaw = prefX + (idx - (count - 1) / 2) * 20;
+                        const xClamped = Math.max(tx + 10, Math.min(tx + tWidth - 10, xRaw));
+                        return {
+                          x: snapToGrid(xClamped),
+                          y: ty + tHeight,
+                          dir: { x: 0, y: 1 },
+                          face,
+                        };
+                      }
+                    };
+
+                    // Create obstacles list for avoidance
+                    const obstacles: LrsObstacle[] = layout.nodes.map((node) => {
+                      const tWidth = getLrsTableWidth(
+                        node.table,
+                        showLrsDataTypes,
+                        lrsKeyNotation,
+                      );
+                      const tHeight = 42 + node.table.columns.length * 26 + 8;
+                      const snapToGrid = (val: number) =>
+                        Math.round(val / 10) * 10;
+                      const tx = snapToGrid(
+                        node.x + node.width / 2 - tWidth / 2,
+                      );
+                      const ty = snapToGrid(
+                        node.y + node.height / 2 - tHeight / 2,
+                      );
+                      return {
+                        name: node.table.name,
+                        x1: tx,
+                        x2: tx + tWidth,
+                        y1: ty,
+                        y2: ty + tHeight,
+                      };
+                    });
+
+                    // Compute all routes
+                    const computedRoutes = layout.edges.map(
+                      (edge, edgeIndex) => {
+                        const rel = edge.relationship;
+                        const sourcePort = getPortCoords(
+                          edge.sourceTable,
+                          edge.id,
+                        );
+                        const targetPort = getPortCoords(
+                          edge.targetTable,
+                          edge.id,
+                        );
+
+                        const sharedEndpointCount = layout.edges
+                          .slice(0, edgeIndex)
+                          .filter(
+                            (candidate) =>
+                              candidate.sourceTable === edge.sourceTable ||
+                              candidate.targetTable === edge.sourceTable ||
+                              candidate.sourceTable === edge.targetTable ||
+                              candidate.targetTable === edge.targetTable,
+                          ).length;
+                        const routeOffset =
+                          sharedEndpointCount === 0
+                            ? 0
+                            : ((sharedEndpointCount + 1) % 3) * 20 - 20;
+
+                        const gapX = Math.abs(targetPort.x - sourcePort.x);
+                        const gapY = Math.abs(targetPort.y - sourcePort.y);
+                        const marginX = Math.max(10, Math.min(40, gapX / 2));
+                        const marginY = Math.max(10, Math.min(40, gapY / 2));
+
+                        const pSource = {
+                          x: sourcePort.x + (sourcePort.face === "right" ? marginX : sourcePort.face === "left" ? -marginX : 0),
+                          y: sourcePort.y + (sourcePort.face === "bottom" ? marginY : sourcePort.face === "top" ? -marginY : 0),
+                        };
+
+                        const pTarget = {
+                          x: targetPort.x + (targetPort.face === "right" ? marginX : targetPort.face === "left" ? -marginX : 0),
+                          y: targetPort.y + (targetPort.face === "bottom" ? marginY : targetPort.face === "top" ? -marginY : 0),
+                        };
+
+                        const rawMiddleRoute = findOrthogonalShortestRoute(
+                          pSource,
+                          pTarget,
+                          sourcePort.face,
+                          targetPort.face,
+                          edge.sourceTable,
+                          edge.targetTable,
+                          obstacles,
+                          routeOffset,
+                        );
+
+                        // Reconstruct the full route starting/ending cleanly at actual port boundaries
+                        const route = simplifyPath([
+                          sourcePort,
+                          ...rawMiddleRoute,
+                          targetPort,
+                        ]);
+
+                        return {
+                          edge,
+                          route,
+                          sourceBorder: sourcePort,
+                          targetBorder: targetPort,
+                          sourceDirection: sourcePort.dir,
+                          targetDirection: targetPort.dir,
+                        };
+                      },
+                    );
+
+                    // Collect vertical segments for arc jumps
+                    const lrsVerticalSegments: {
+                      x: number;
+                      y1: number;
+                      y2: number;
+                      edgeId: string;
+                    }[] = [];
+                    computedRoutes.forEach(({ route, edge }) => {
+                      for (let i = 0; i < route.length - 1; i++) {
+                        const A = route[i];
+                        const B = route[i + 1];
+                        if (A && B && Math.abs(A.x - B.x) < 1.5) {
+                          lrsVerticalSegments.push({
+                            x: (A.x + B.x) / 2,
+                            y1: A.y,
+                            y2: B.y,
+                            edgeId: edge.id,
+                          });
+                        }
+                      }
+                    });
+
+                    return (
+                      <>
+                        {/* 1. Draw Connectors (Orthogonal lines with jumps) */}
+                        {computedRoutes.map(
+                          ({
+                            edge,
+                            route,
+                            sourceBorder,
+                            targetBorder,
+                            sourceDirection,
+                            targetDirection,
+                          }) => {
+                            const rel = edge.relationship;
+                            const isEdgeFocused = selectedEntityName
+                              ? edge.sourceTable === selectedEntityName ||
+                                edge.targetTable === selectedEntityName
+                              : false;
+                            const pathD = generatePathDWithJumps(
+                              route,
+                              lrsVerticalSegments,
+                              edge.id,
+                              lineStyle,
+                            );
+
+                            const sourceCardinality =
+                              rel.sourceCardinality ?? "one";
+                            const targetCardinality =
+                              rel.targetCardinality ??
+                              (rel.type === "1:1" ? "one" : "many");
+
+                            return (
+                              <g key={edge.id}>
+                                <path
+                                  d={pathD}
+                                  fill="none"
+                                  stroke={isEdgeFocused ? "#60a5fa" : "#2563eb"}
+                                  strokeWidth={isEdgeFocused ? 2.25 : 1.5}
+                                  className="diagram-rel-line"
+                                />
+                                {relNotation === "crowsfoot" && (
+                                  <>
+                                    {renderCrowFootMarker(
+                                      sourceBorder,
+                                      sourceDirection,
+                                      sourceCardinality,
+                                      `${edge.id}-source-marker`,
+                                    )}
+                                    {renderCrowFootMarker(
+                                      targetBorder,
+                                      targetDirection,
+                                      targetCardinality,
+                                      `${edge.id}-target-marker`,
+                                    )}
+                                  </>
+                                )}
+                                {relNotation === "label" && (
+                                  <>
+                                    <text
+                                      x={sourceBorder.x}
+                                      y={sourceBorder.y - 8}
+                                      textAnchor="middle"
+                                      fill="#a1a1aa"
+                                      className="text-[10px] font-semibold font-mono"
+                                    >
+                                      {sourceCardinality === "many" ? "N" : "1"}
+                                    </text>
+                                    <text
+                                      x={targetBorder.x}
+                                      y={targetBorder.y - 8}
+                                      textAnchor="middle"
+                                      fill="#a1a1aa"
+                                      className="text-[10px] font-semibold font-mono"
+                                    >
+                                      {targetCardinality === "many" ? "N" : "1"}
+                                    </text>
+                                  </>
+                                )}
+                              </g>
+                            );
+                          },
+                        )}
+
+                        {/* 2. Draw Table Rows Blocks */}
+                        {layout.nodes.map((node) => {
+                          const table = node.table;
+                          const cx = node.x + node.width / 2;
+                          const cy = node.y + node.height / 2;
+                          const tWidth = getLrsTableWidth(
+                            table,
+                            showLrsDataTypes,
+                            lrsKeyNotation,
+                          );
+                          const tHeight = 42 + table.columns.length * 26 + 8;
+                          const snapToGrid = (value: number) =>
+                            Math.round(value / 10) * 10;
+                          const tx = snapToGrid(cx - tWidth / 2);
+                          const ty = snapToGrid(cy - tHeight / 2);
+
+                          return (
+                            <g
+                              key={node.id}
+                              onPointerDown={(e) =>
+                                handleEntityPointerDown(e, table.name)
+                              }
+                              onPointerMove={(e) => {
+                                if (draggingEntity?.tableName === table.name) {
+                                  handleEntityDrag(e.clientX, e.clientY);
+                                }
+                              }}
+                              onPointerUp={(e) => {
+                                e.currentTarget.releasePointerCapture(
+                                  e.pointerId,
+                                );
+                                setDraggingEntity(null);
+                                if (hasDragged) saveHistory();
+                              }}
+                              className="cursor-move"
+                            >
+                              {/* Outer Card */}
+                              <rect
+                                x={tx}
+                                y={ty}
+                                width={tWidth}
+                                height={tHeight}
+                                rx={8}
+                                fill="#18181b"
+                                stroke="#52525b"
+                                strokeWidth={1.5}
+                              />
+                              {/* Header */}
+                              <path
+                                d={`M ${tx} ${ty + 8} A 8 8 0 0 1 ${tx + 8} ${ty} L ${tx + tWidth - 8} ${ty} A 8 8 0 0 1 ${tx + tWidth} ${ty + 8} L ${tx + tWidth} ${ty + 42} L ${tx} ${ty + 42} Z`}
+                                fill="#09090b"
+                              />
+                              <text
+                                x={cx}
+                                y={ty + 26}
+                                textAnchor="middle"
+                                fill="#fafafa"
+                                className="text-xs font-semibold font-mono tracking-tight"
+                              >
+                                {table.name}
+                              </text>
+
+                              {/* Column Rows */}
+                              {table.columns.map((col, idx) => {
+                                const ry = ty + 42 + idx * 26;
+                                const isFk = table.foreignKeys.some((fk) =>
+                                  fk.columns
+                                    .map((c) => c.toLowerCase())
+                                    .includes(col.name.toLowerCase()),
+                                );
+
+                                return (
+                                  <g key={col.name}>
+                                    <rect
+                                      x={tx}
+                                      y={ry}
+                                      width={tWidth}
+                                      height={26}
+                                      fill={
+                                        idx % 2 === 0
+                                          ? "rgba(39,39,42,0.15)"
+                                          : "transparent"
+                                      }
+                                    />
+                                    <text
+                                      x={tx + 12}
+                                      y={ry + 17}
+                                      fill="#ffffff"
+                                      className={`text-xs ${col.isPrimaryKey ? "italic font-medium font-mono" : "font-mono font-normal"}`}
+                                    >
+                                      {formatLrsColumn(
+                                        col.name,
+                                        col.isPrimaryKey,
+                                        isFk,
+                                        lrsKeyNotation,
+                                      )}
+                                      {showLrsDataTypes && (
+                                        <tspan
+                                          fill="#ffffff"
+                                          className="text-[9px]"
+                                        >
+                                          {` (${col.type})`}
+                                        </tspan>
+                                      )}
+                                    </text>
+                                  </g>
+                                );
+                              })}
+                            </g>
+                          );
+                        })}
+
+                        {/* Keep LRS connectors visible above table cards. */}
+                        {computedRoutes.map(
+                          ({
+                            edge,
+                            route,
+                            sourceBorder,
+                            targetBorder,
+                            sourceDirection,
+                            targetDirection,
+                          }) => {
+                            const rel = edge.relationship;
+                            const sourceCardinality =
+                              rel.sourceCardinality ?? "one";
+                            const targetCardinality =
+                              rel.targetCardinality ??
+                              (rel.type === "1:1" ? "one" : "many");
+                            const pathD = generatePathDWithJumps(
+                              route,
+                              lrsVerticalSegments,
+                              edge.id,
+                              lineStyle,
                             );
 
                             return (
-                              <g key={col.name}>
-                                <rect
-                                  x={tx}
-                                  y={ry}
-                                  width={tWidth}
-                                  height={26}
-                                  fill={
-                                    idx % 2 === 0
-                                      ? "rgba(39,39,42,0.15)"
-                                      : "transparent"
+                              <g
+                                key={`lrs-overlay-${edge.id}`}
+                                pointerEvents="none"
+                              >
+                                <path
+                                  d={pathD}
+                                  fill="none"
+                                  stroke={
+                                    selectedEntityName &&
+                                    (edge.sourceTable === selectedEntityName ||
+                                      edge.targetTable === selectedEntityName)
+                                      ? "#60a5fa"
+                                      : "#2563eb"
                                   }
+                                  strokeWidth={1.5}
+                                  className="diagram-rel-line"
                                 />
-                                <text
-                                  x={tx + 12}
-                                  y={ry + 17}
-                                  fill="#ffffff"
-                                  className={`text-xs ${col.isPrimaryKey ? "italic font-medium font-mono" : "font-mono font-normal"}`}
-                                >
-                                  {formatLrsColumn(
-                                    col.name,
-                                    col.isPrimaryKey,
-                                    isFk,
-                                    lrsKeyNotation,
-                                  )}{" "}
-                                  <tspan fill="#ffffff" className="text-[9px]">
-                                    ({col.type})
-                                  </tspan>
-                                </text>
+                                {relNotation === "crowsfoot" && (
+                                  <>
+                                    {renderCrowFootMarker(
+                                      sourceBorder,
+                                      sourceDirection,
+                                      sourceCardinality,
+                                      `lrs-overlay-${edge.id}-source`,
+                                    )}
+                                    {renderCrowFootMarker(
+                                      targetBorder,
+                                      targetDirection,
+                                      targetCardinality,
+                                      `lrs-overlay-${edge.id}-target`,
+                                    )}
+                                  </>
+                                )}
+                                {relNotation === "label" && (
+                                  <>
+                                    <text
+                                      x={sourceBorder.x}
+                                      y={sourceBorder.y - 8}
+                                      textAnchor="middle"
+                                      fill="#a1a1aa"
+                                      className="text-[10px] font-semibold font-mono"
+                                    >
+                                      {sourceCardinality === "many" ? "N" : "1"}
+                                    </text>
+                                    <text
+                                      x={targetBorder.x}
+                                      y={targetBorder.y - 8}
+                                      textAnchor="middle"
+                                      fill="#a1a1aa"
+                                      className="text-[10px] font-semibold font-mono"
+                                    >
+                                      {targetCardinality === "many" ? "N" : "1"}
+                                    </text>
+                                  </>
+                                )}
                               </g>
                             );
-                          })}
-                        </g>
-                      );
-                    })}
-                  </>
-                )}
+                          },
+                        )}
+                      </>
+                    );
+                  })()}
 
                 {/* B1.5. RENDER MODE: CLASS DIAGRAM */}
                 {mode === "class" && layout && (
@@ -4331,7 +5236,7 @@ export default function DrawioPreview() {
                                 fill="#a1a1aa"
                                 className="text-[9px] font-semibold font-mono"
                               >
-                                1
+                                {rel.sourceCardinality === "many" ? "N" : "1"}
                               </text>
                               {/* End point label (Target) */}
                               <text
@@ -4340,7 +5245,7 @@ export default function DrawioPreview() {
                                 fill="#a1a1aa"
                                 className="text-[9px] font-semibold font-mono"
                               >
-                                {rel.type === "1:1" ? "1" : "*"}
+                                {rel.targetCardinality === "many" ? "N" : "1"}
                               </text>
                             </>
                           )}
@@ -4502,7 +5407,13 @@ export default function DrawioPreview() {
                     });
 
                     // Resolve diamond collisions by sliding along path
-                    for (let iter = 0; iter < 30; iter++) {
+                    const relationCollisionIterations =
+                      layout.nodes.length + layout.edges.length > 80 ? 10 : 30;
+                    for (
+                      let iter = 0;
+                      iter < relationCollisionIterations;
+                      iter++
+                    ) {
                       let moved = false;
                       for (let i = 0; i < diamonds.length; i++) {
                         for (let j = i + 1; j < diamonds.length; j++) {
@@ -4728,6 +5639,7 @@ export default function DrawioPreview() {
                                 return (
                                   <line
                                     key={`hit-trans-src-${si}`}
+                                    className="diagram-rel-hit-zone"
                                     x1={p.x}
                                     y1={p.y}
                                     x2={p2t.x}
@@ -4759,6 +5671,7 @@ export default function DrawioPreview() {
                                 return (
                                   <line
                                     key={`hit-trans-tgt-${si}`}
+                                    className="diagram-rel-hit-zone"
                                     x1={p.x}
                                     y1={p.y}
                                     x2={p2t.x}
@@ -6039,7 +6952,7 @@ function resolveCollisions(
     p2: { x: number; y: number };
   }[] = [],
 ) {
-  const maxIterations = 25;
+  const maxIterations = allSegments.length > 80 ? 8 : 25;
   let changed = true;
 
   for (let iter = 0; iter < maxIterations && changed; iter++) {

@@ -135,8 +135,12 @@ export function generateLrsXml(layoutData: LayoutData, lrsKeyNotation: 'stars' |
     const sourceTableId = `table_${rel.sourceTable}`;
     const targetTableId = `table_${rel.targetTable}`;
 
-    const startArrow = 'ERmandOne';
-    const endArrow = rel.type === '1:1' ? 'ERmandOne' : 'ERmany';
+    const sourceCardinality = rel.sourceCardinality ?? 'one';
+    const targetCardinality =
+      rel.targetCardinality ?? (rel.type === '1:1' ? 'one' : 'many');
+
+    const startArrow = sourceCardinality === 'many' ? 'ERmany' : 'ERone';
+    const endArrow = targetCardinality === 'many' ? 'ERmany' : 'ERone';
 
     const edgeStyle = [
       'edgeStyle=orthogonalEdgeStyle',

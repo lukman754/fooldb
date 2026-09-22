@@ -147,12 +147,22 @@ export function generateClassXml(
     const edgeId = `edge_rel_${rel.id}`;
 
     const sourceTableId = `class_${rel.sourceTable}`;
-    const targetTableId = `class_${rel.targetTable}`;
+    const sourceCardinality = rel.sourceCardinality ?? 'one';
+    const targetCardinality =
+      rel.targetCardinality ?? (rel.type === '1:1' ? 'one' : 'many');
 
-    const startArrow = relNotation === 'crowsfoot' ? 'ERmandOne' : 'none';
-    const endArrow = relNotation === 'crowsfoot'
-      ? (rel.type === '1:1' ? 'ERmandOne' : 'ERmany')
-      : 'none';
+    const startArrow =
+      relNotation === 'crowsfoot'
+        ? sourceCardinality === 'many'
+          ? 'ERmany'
+          : 'ERone'
+        : 'none';
+    const endArrow =
+      relNotation === 'crowsfoot'
+        ? targetCardinality === 'many'
+          ? 'ERmany'
+          : 'ERone'
+        : 'none';
 
     const edgeStyle = [
       'edgeStyle=orthogonalEdgeStyle',

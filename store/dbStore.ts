@@ -928,7 +928,7 @@ export const useDbStore = create<DbState>((set, get) => {
         return;
       }
       try {
-        const layout = await computeLayout(visualSchema);
+        const layout = await computeLayout(visualSchema, get().mode);
         // Ignore an outdated async layout result if the schema changed while ELK ran.
         if (get().visualSchema !== visualSchema) return;
         set({ layout, schema: visualSchema, error: null });
@@ -1027,7 +1027,7 @@ export const useDbStore = create<DbState>((set, get) => {
             relationships: filteredRelationships,
           };
 
-          const layout = await computeLayout(schema);
+          const layout = await computeLayout(schema, targetMode);
 
           const duration = performance.now() - startTime;
           set({
@@ -1154,7 +1154,7 @@ export const useDbStore = create<DbState>((set, get) => {
           relationships: filteredRelationships,
         };
 
-        const layout = await computeLayout(schema);
+        const layout = await computeLayout(schema, get().mode);
 
         set({
           schema: rawSchema,

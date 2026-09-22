@@ -19,24 +19,54 @@ const NODE_GAP = 24;
 const EDGE_NODE_GAP = 28;
 const EDGE_GAP = 20;
 
+function getLrsTableWidth(table: any) {
+  const longestText = table.columns.reduce((longest: number, column: any) => {
+    // Check primary keys
+    const keyPrefix = column.isPrimaryKey ? "* " : "";
+    // Check foreign keys
+    const isFk = table.foreignKeys?.some((fk: any) =>
+      fk.columns.some(
+        (name: string) => name.toLowerCase() === column.name.toLowerCase(),
+      ),
+    );
+    const fkPrefix = isFk ? "FK " : "";
+    const textLength =
+      keyPrefix.length +
+      fkPrefix.length +
+      column.name.length +
+      (column.type?.length || 0) + 3; // include type length
+    return Math.max(longest, textLength);
+  }, table.name.length);
+  return Math.max(180, Math.min(600, longestText * 9.5 + 36));
+}
+
 export async function computeLayout(
   schema: DatabaseSchema,
+  mode: string = "erd",
 ): Promise<LayoutData> {
   const children: ElkNode[] = [];
   const edges: ElkExtendedEdge[] = [];
 
   // 1. Create nodes for each table
   for (const table of schema.tables) {
-    const N = table.columns.length;
-    const R = 85 + N * 5;
-    // Account for attributes orbiting around the table plus spacing
-    const bboxWidth = 2 * (R + 80);
-    const bboxHeight = 2 * (R + 60);
+    let width = 240;
+    let height = 150;
+
+    if (mode === "lrs") {
+      width = getLrsTableWidth(table) + 40; // add gap padding
+      height = 42 + table.columns.length * 26 + 8 + 40; // add gap padding
+    } else {
+      const N = table.columns.length;
+      const R = 85 + N * 5;
+      // Account for attributes orbiting around the table plus spacing
+      width = 2 * (R + 80);
+      height = 2 * (R + 60);
+    }
 
     children.push({
       id: table.name,
-      width: bboxWidth,
-      height: bboxHeight,
+      width,
+      height,
       layoutOptions: {
         "elk.portConstraints": "FREE",
       },

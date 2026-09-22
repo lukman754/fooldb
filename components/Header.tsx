@@ -274,6 +274,9 @@ export default function Header({
   const [showTemplateMenu, setShowTemplateMenu] = useState(false);
   const [showKeyPopover, setShowKeyPopover] = useState(false);
   const [showMobileNav, setShowMobileNav] = useState(false);
+  const [imageWidth, setImageWidth] = useState("1000");
+  const [imageBackground, setImageBackground] = useState("#ffffff");
+  const [imageFont, setImageFont] = useState("Arial");
   const apiKey = useDbStore((state) => state.apiKey);
   const setApiKey = useDbStore((state) => state.setApiKey);
   const initializeStore = useDbStore((state) => state.initializeStore);
@@ -408,9 +411,16 @@ export default function Header({
         return;
       }
       if (format === "svg") {
-        exportToSvg(svgElement, `${filenameBase}.svg`);
+        exportToSvg(svgElement, `${filenameBase}.svg`, {
+          backgroundColor: imageBackground,
+          fontFamily: imageFont,
+        });
       } else if (format === "png") {
-        exportToPng(svgElement, `${filenameBase}.png`);
+        exportToPng(svgElement, `${filenameBase}.png`, {
+          width: imageWidth ? Number(imageWidth) : undefined,
+          backgroundColor: imageBackground,
+          fontFamily: imageFont,
+        });
       }
     }
   };
@@ -612,6 +622,45 @@ export default function Header({
                 >
                   Export Raster PNG
                 </button>
+                <div className="mt-1 border-t border-zinc-800 px-2.5 pt-2 pb-1 space-y-2">
+                  <label className="flex items-center justify-between gap-2 text-[10px] text-zinc-500">
+                    <span>PNG width (px)</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={imageWidth}
+                      onChange={(e) =>
+                        setImageWidth(e.target.value.replace(/\D/g, ""))
+                      }
+                      className="w-20 rounded border border-zinc-700 bg-zinc-950 px-1.5 py-1 text-right text-[10px] text-zinc-300"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-2 text-[10px] text-zinc-500">
+                    <span>Background</span>
+                    <select
+                      value={imageBackground}
+                      onChange={(e) => setImageBackground(e.target.value)}
+                      className="rounded border border-zinc-700 bg-zinc-950 px-1.5 py-1 text-[10px] text-zinc-300"
+                    >
+                      <option value="#ffffff">White</option>
+                      <option value="#000000">Black</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center justify-between gap-2 text-[10px] text-zinc-500">
+                    <span>Font</span>
+                    <select
+                      value={imageFont}
+                      onChange={(e) => setImageFont(e.target.value)}
+                      className="rounded border border-zinc-700 bg-zinc-950 px-1.5 py-1 text-[10px] text-zinc-300"
+                    >
+                      <option value="Arial">Arial</option>
+                      <option value="Verdana">Verdana</option>
+                      <option value="Helvetica">Helvetica</option>
+                      <option value="Georgia">Georgia</option>
+                    </select>
+                  </label>
+                </div>
               </div>
             </>
           )}

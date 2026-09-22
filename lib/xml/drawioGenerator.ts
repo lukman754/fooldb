@@ -279,6 +279,9 @@ export function generateDrawioXml(
   for (const d of diamonds) {
     const edge = d.edge;
     const rel = d.rel;
+    const sourceCardinality = rel.sourceCardinality ?? "one";
+    const targetCardinality =
+      rel.targetCardinality ?? (rel.type === "1:1" ? "one" : "many");
     const edgeId = `edge_rel_${rel.id}`;
     const diamondId = `diamond_${rel.id}`;
     const sourceTableId = `table_${rel.sourceTable}`;
@@ -337,9 +340,11 @@ export function generateDrawioXml(
         "jumpStyle=arc",
       ].join(";");
 
-      const srcLabel = "1";
-      const tgtLabel =
-        rel.type === "M:N" ? "N" : rel.type === "1:N" ? "N" : "1";
+      const sourceCardinality = rel.sourceCardinality ?? "one";
+      const targetCardinality =
+        rel.targetCardinality ?? (rel.type === "1:1" ? "one" : "many");
+      const srcLabel = sourceCardinality === "many" ? "N" : "1";
+      const tgtLabel = targetCardinality === "many" ? "N" : "1";
 
       // Edge 1: Table A -> Diamond
       xml += `        <mxCell id="${edgeId}_1" edge="1" parent="1" source="${sourceTableId}" style="${edge1Style}" target="${diamondId}">\n`;
@@ -368,13 +373,15 @@ export function generateDrawioXml(
       xml += "        </mxCell>\n";
 
       // Source label child cell parented to Edge 1 (x="-1" near Table A)
-      xml += `        <mxCell id="${edgeId}_src" value="${escapeXml(srcLabel)}" connectable="0" parent="${edgeId}_1" style="resizable=0;html=1;whiteSpace=wrap;align=left;verticalAlign=bottom;" vertex="1">\n`;
-      xml += '          <mxGeometry relative="1" x="-1" as="geometry"/>\n';
+      xml += `        <mxCell id="${edgeId}_src" value="${escapeXml(srcLabel)}" connectable="0" parent="${edgeId}_1" style="resizable=0;strokeColor=none;fillColor=none;html=1;whiteSpace=wrap;align=left;verticalAlign=bottom;" vertex="1">\n`;
+      xml +=
+        '          <mxGeometry relative="1" x="-1" y="-1" as="geometry"/>\n';
       xml += "        </mxCell>\n";
 
       // Target label child cell parented to Edge 2 (x="1" near Table B)
-      xml += `        <mxCell id="${edgeId}_tgt" value="${escapeXml(tgtLabel)}" connectable="0" parent="${edgeId}_2" style="resizable=0;html=1;whiteSpace=wrap;align=right;verticalAlign=bottom;" vertex="1">\n`;
-      xml += '          <mxGeometry relative="1" x="1" as="geometry"/>\n';
+      xml += `        <mxCell id="${edgeId}_tgt" value="${escapeXml(tgtLabel)}" connectable="0" parent="${edgeId}_2" style="resizable=0;strokeColor=none;fillColor=none;html=1;whiteSpace=wrap;align=right;verticalAlign=bottom;" vertex="1">\n`;
+      xml +=
+        '          <mxGeometry relative="1" x="1" y="-1" as="geometry"/>\n';
       xml += "        </mxCell>\n";
     } else {
       // Crow's foot notation
@@ -384,7 +391,7 @@ export function generateDrawioXml(
         "orthogonalLoop=1",
         "jettySize=auto",
         "html=1",
-        "startArrow=ERone",
+        `startArrow=${sourceCardinality === "many" ? "ERmany" : "ERone"}`,
         "startFill=0",
         "endArrow=none",
         "strokeColor=#6366f1",
@@ -392,7 +399,7 @@ export function generateDrawioXml(
         "jumpStyle=arc",
       ].join(";");
 
-      const endArrow = rel.type === "1:1" ? "ERone" : "ERmany";
+      const endArrow = targetCardinality === "many" ? "ERmany" : "ERone";
       const edge2Style = [
         "edgeStyle=orthogonalEdgeStyle",
         "rounded=0",
