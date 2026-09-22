@@ -1,25 +1,25 @@
-﻿# FooIDB
+# FooIDB
 
-FooIDB is a database design and visualization platform built to simplify schema planning, relationship mapping, and export workflows. It is designed for teams who want to create structured database models quickly while keeping the process flexible, visual, and AI-assisted.
+FooIDB is a modern web application for designing, visualizing, and exporting database schemas with AI-assisted workflows. It helps teams accelerate database planning, entity relationship modeling, and SQL/diagram generation from structured ideas or existing schema logic.
 
-<img src="https://placehold.co/1400x700/0F172A/F8FAFC?text=FooIDB+Preview" alt="FooIDB preview placeholder" width="1400" />
+<img width="1767" height="941" alt="image" src="https://github.com/user-attachments/assets/1257d0df-7eef-474b-b3f1-3ea16017f210" />
 
 ## Overview
 
-FooIDB combines a schema editor, visual diagram builder, and AI-assisted generation features into a single workflow. Users can define entities, attributes, and relationships, then transform the result into a usable database structure or export-ready representation.
+FooIDB combines a database editor, visual diagram builder, and AI-powered suggestions into one workflow. Users can define entities, relationships, and attributes, then transform the result into a schema representation or export-ready diagram.
 
-The platform is built with Next.js and supports Google authentication, Drive integration, and Gemini-powered suggestions for relationship and method generation.
+The application is built with Next.js and includes Google authentication, Google Drive integration, and AI-assisted relationship and method generation powered by Gemini.
 
-## Features
+## Key Features
 
-- Database schema creation and editing
-- Visual relationship modeling
-- AI-assisted relationship and method suggestions
-- Diagram-oriented workflow for design review
+- Database schema modeling with table and relationship management
+- Visual editor for diagram-based database design
+- SQL and UML-oriented workflow support
+- AI-assisted relationship and method generation
 - Draw.io-compatible export flow
-- Google OAuth login
-- Google Drive file integration
-- Responsive interface for desktop and mobile use
+- Google OAuth login for authenticated access
+- Google Drive integration for saving and reading project files
+- Responsive interface for desktop and mobile workflows
 
 ## Tech Stack
 
@@ -30,16 +30,16 @@ The platform is built with Next.js and supports Google authentication, Drive int
 - NextAuth
 - Google APIs
 - Gemini AI integration
-- ELK layout engine
-- Monaco Editor
+- ELK layout engine for diagram layouting
+- Monaco Editor for editing workflows
 
 ## Typical Workflow
 
-1. Open the dashboard and create a new project.
-2. Add tables, fields, and relationships.
-3. Use AI recommendations to refine the schema.
-4. Review the visual diagram and structure.
-5. Export or continue the design for downstream use.
+1. Open the dashboard and create or import a database structure.
+2. Define tables, columns, and relationships.
+3. Use AI-generated methods or relationship suggestions when needed.
+4. Preview the design in the visual editor.
+5. Export the result for documentation or downstream tooling.
 
 ## Project Structure
 
@@ -73,9 +73,9 @@ types/
 ### Prerequisites
 
 - Node.js 18 or later
-- npm
-- Google Cloud OAuth credentials
-- Gemini API key for AI features
+- npm or pnpm
+- A Google Cloud project for OAuth credentials
+- A Gemini API key for AI features
 
 ### Installation
 
@@ -83,13 +83,13 @@ types/
 npm install
 ```
 
-### Run locally
+### Run the app locally
 
 ```bash
 npm run dev
 ```
 
-Then open http://localhost:3000 in your browser.
+Open http://localhost:3000 in the browser.
 
 ## Environment Variables
 
@@ -103,34 +103,26 @@ AUTH_GOOGLE_SECRET=your_google_client_secret
 
 Notes:
 
-- `AUTH_SECRET` is used by NextAuth for secure session handling.
-- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` are required for Google sign-in.
-- The Gemini API key is entered through the app interface for AI-powered features.
+- `AUTH_SECRET` is required for NextAuth session security.
+- `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` are used for Google sign-in.
+- The Gemini API key is used from the app UI on the client side for AI features.
 
 ## Authentication and Drive Integration
 
-The application uses Google OAuth for authentication and requests drive access to support reading and saving project files. This allows authenticated workflow access without leaving the application context.
+The application uses Google OAuth for authentication and requests Drive access to support reading and saving project files. The provider configuration is defined in the auth setup and uses the Google OAuth flow with Drive file permissions.
 
 ## Development Notes
 
-- Main product workflows are centered in the dashboard and editor modules.
-- AI logic is handled via API routes under the app folder.
-- Database state management is organized in the store layer.
-- Export, transformation, and XML generation logic are separated into dedicated modules.
+- The main app logic is centered in the dashboard and editor workflows.
+- AI endpoints live under the `app/api` folder.
+- State management for the database model is handled in `store/dbStore.ts`.
+- Export and XML generation logic is organized under `lib/export` and `lib/xml`.
 
-## Screenshots Placeholder
+## Preview
+<img width="1861" height="937" alt="image" src="https://github.com/user-attachments/assets/cd785594-d3d5-44d1-aa8b-3de7fe739633" />
+<img width="1865" height="945" alt="image" src="https://github.com/user-attachments/assets/922e42ee-9d22-47ea-81a8-bed510043bdb" />
 
-Use this area for product screenshots, mockups, or product captures after launch.
-
-<img src="https://placehold.co/1200x600/111827/F3F4F6?text=Insert+Screenshot+Here" alt="Screenshot placeholder" width="1200" />
 
 ## Notes
 
-FooIDB is intended for rapid database planning, documentation, and structured design work. The project is organized so the editor, AI features, and export pipeline can evolve independently while staying easy to maintain.
-
-## Roadmap
-
-- Add stronger schema validation
-- Expand export options
-- Improve AI prompt quality and consistency
-- Support reusable database templates
+This project is designed as a flexible database design tool for prototyping, documentation, and rapid schema planning. It is intentionally structured so the editor, export layer, and AI features can evolve independently.
